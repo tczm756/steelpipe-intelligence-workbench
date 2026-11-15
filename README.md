@@ -29,7 +29,7 @@ recognition-small-ablation.onnx
 recognition-small-original.onnx
 ```
 
-权重来源、SHA256、训练指标和预处理定义记录在 `models/manifest.json`。浏览器输入与 PyTorch 一致：灰度转换、`(pixel / 255 - 0.5) / 0.5`、分割 320×320、识别 128×128 双通道。浏览器重采样与 Pillow 的重采样实现略有差异，阈值边界附近可能相差少量像素；同一张 `In_1.bmp` 参考复算与浏览器结果均为 `inclusion`，验证 Dice 权重掩码像素约 2.0K，浏览器实测约 2.2K。
+权重来源、SHA256、训练指标和预处理定义记录在 `models/manifest.json`。浏览器输入与 PyTorch 一致：灰度转换、`(pixel / 255 - 0.5) / 0.5`、分割 320×320、识别 128×128 双通道。浏览器重采样与 Pillow 的重采样实现略有差异，阈值边界附近可能相差少量像素；同一张 `In_1.bmp` 在阈值 `0.42` 下，PyTorch 参考掩码为 2,032 像素，线上浏览器实测为 2,051 像素，两者均识别为 `inclusion`。
 
 重新导出权重：
 
