@@ -12,6 +12,14 @@ ort.env.wasm.numThreads = 1;
 ort.env.wasm.proxy = true;
 ort.env.logLevel = "error";
 
+const compressedRuntimeReady = prepareCompressedRuntime();
+
+navigator.serviceWorker?.addEventListener("message", (event) => {
+  if (event.data?.type === "compressed-wasm-served") {
+    window.__compressedWasmServed = true;
+  }
+});
+
 const segmentationModels = {
   "small-unet-boundary": {
     id: "small-unet-boundary",
@@ -580,6 +588,7 @@ function init() {
         segmentationLatencyMs: state.analysis?.segmentationLatencyMs ?? null,
         recognitionLatencyMs: state.analysis?.recognitionLatencyMs ?? null,
         totalLatencyMs: state.analysis?.totalLatencyMs ?? null,
+        compressedWasmServed: Boolean(window.__compressedWasmServed),
         cacheKeys: Array.from(state.analysisCache.keys()),
       }),
       countThreshold: (threshold) => {
@@ -1105,13 +1114,71 @@ function isInferenceBusy() {
 async function getModelSession(model) {
   if (model.session) return model.session;
   if (!model.manifest?.file) throw new Error(`权重文件不存在：${model.id}`);
-  const modelUrl = new URL(model.manifest.file, window.location.href).href;
-  model.session = await ort.InferenceSession.create(modelUrl, {
+  await compressedRuntimeReady;
+  const modelBytes = await fetchModelBytes(model.manifest.file);
+  model.session = await ort.InferenceSession.create(modelBytes, {
     executionProviders: ["wasm"],
     graphOptimizationLevel: "all",
     logSeverityLevel: 3,
   });
   return model.session;
+}
+
+async function prepareCompressedRuntime() {
+  if (
+    !("serviceWorker" in navigator) ||
+    typeof DecompressionStream === "undefined"
+  ) {
+    return false;
+  }
+  try {
+    await navigator.serviceWorker.register("./compression-sw.js", {
+      scope: "./",
+    });
+    const ready = await Promise.race([
+      navigator.serviceWorker.ready.then(() => true),
+      new Promise((resolve) => window.setTimeout(() => resolve(false), 2500)),
+    ]);
+    if (!ready) return false;
+    if (!navigator.serviceWorker.controller) {
+      await Promise.race([
+        new Promise((resolve) => {
+          navigator.serviceWorker.addEventListener("controllerchange", resolve, {
+            once: true,
+          });
+        }),
+        new Promise((resolve) => window.setTimeout(resolve, 1500)),
+      ]);
+    }
+    return Boolean(navigator.serviceWorker.controller);
+  } catch (error) {
+    console.warn("Compressed runtime service worker unavailable:", error);
+    return false;
+  }
+}
+
+async function fetchModelBytes(file) {
+  const compressedUrl = new URL(`${file}.gz`, window.location.href).href;
+  if (typeof DecompressionStream !== "undefined") {
+    try {
+      const response = await fetch(compressedUrl, { cache: "force-cache" });
+      if (response.ok && response.body) {
+        const decompressed = response.body.pipeThrough(
+          new DecompressionStream("gzip"),
+        );
+        return await new Response(decompressed).arrayBuffer();
+      }
+    } catch (error) {
+      console.warn("Compressed model unavailable, using ONNX fallback:", error);
+    }
+  }
+  const response = await fetch(new URL(file, window.location.href).href, {
+    cache: "force-cache",
+  });
+  if (!response.ok) {
+    throw new Error(`权重下载失败：HTTP ${response.status}`);
+  }
+  return response.arrayBuffer();
 }
 
 async function runInference() {
