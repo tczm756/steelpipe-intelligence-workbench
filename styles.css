@@ -107,6 +107,10 @@ img {
   max-width: 100%;
 }
 
+img[hidden] {
+  display: none !important;
+}
+
 h1,
 h2,
 h3,
@@ -799,6 +803,15 @@ small {
   animation: live-pulse 1.8s ease-in-out infinite;
 }
 
+.scene-live.is-processing {
+  color: var(--orange-bright);
+}
+
+.scene-live.is-processing span {
+  background: var(--orange);
+  box-shadow: 0 0 10px var(--orange);
+}
+
 .metric-floats {
   position: absolute;
   z-index: 3;
@@ -941,6 +954,47 @@ small {
 
 .report-panel[hidden] {
   display: none;
+}
+
+.report-panel [hidden] {
+  display: none !important;
+}
+
+.report-empty {
+  display: flex;
+  min-height: 224px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 22px 18px;
+  border: 1px dashed rgba(89, 244, 228, 0.18);
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+
+.report-empty svg {
+  width: 31px;
+  height: 31px;
+  color: var(--cyan-dim);
+  stroke-width: 1.35;
+}
+
+.report-empty strong {
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.report-empty p {
+  max-width: 270px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.report-empty.is-no-defect svg {
+  color: var(--success);
 }
 
 .confidence-row {
@@ -1131,6 +1185,24 @@ small {
   object-fit: cover;
 }
 
+.image-placeholder {
+  display: grid;
+  width: 100%;
+  aspect-ratio: 1;
+  place-items: center;
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(4, 10, 13, 0.7);
+  color: var(--muted-2);
+  font-family: var(--font-num);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.image-placeholder[hidden] {
+  display: none;
+}
+
 .visual-compare figcaption {
   padding-top: 6px;
   color: var(--muted);
@@ -1172,10 +1244,17 @@ small {
 
 .gradcam-figure img {
   width: 124px;
-  height: 184px;
+  height: 124px;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
   object-fit: cover;
+  image-rendering: pixelated;
+}
+
+.recognition-placeholder {
+  width: 124px;
+  height: 124px;
+  aspect-ratio: auto;
 }
 
 .gradcam-figure figcaption {
@@ -1443,8 +1522,37 @@ small {
   white-space: nowrap;
 }
 
+.inference-file-context {
+  min-height: 44px;
+}
+
+.inference-file-context img {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  object-fit: cover;
+  image-rendering: auto;
+}
+
+.inference-action-group {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.upload-image-button {
+  min-width: 126px;
+}
+
+.upload-image-button:focus-visible {
+  box-shadow: var(--focus);
+}
+
 .button-run {
-  min-width: 168px;
+  min-width: 202px;
 }
 
 .button-run small {
@@ -3516,8 +3624,16 @@ small {
     gap: 12px;
   }
 
+  .inference-action-group {
+    display: grid;
+    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+    width: 100%;
+  }
+
+  .upload-image-button,
   .button-run {
     width: 100%;
+    min-width: 0;
   }
 
   .report-drawer {

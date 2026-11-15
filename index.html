@@ -53,11 +53,11 @@
         </nav>
 
         <div class="top-actions">
-          <div class="runtime-status" aria-label="云端运行状态：已连接">
+          <div class="runtime-status" aria-label="浏览器推理状态：就绪">
             <span class="status-orbit" aria-hidden="true"><span></span></span>
             <span class="runtime-copy">
-              <strong>Cloud A100</strong>
-              <small>已连接 · 18 ms</small>
+              <strong>Browser ONNX</strong>
+              <small>真实权重 · 本地推理</small>
             </span>
           </div>
           <button class="button button-primary" type="button" id="newExperimentBtn">
@@ -71,8 +71,8 @@
         <section class="workspace-view inspect-view" id="view-inspect" aria-labelledby="inspect-title">
           <div class="inspect-stage" id="inspectStage">
             <div class="stage-grid" aria-hidden="true"></div>
-            <div class="particle-stage" id="particleStage" role="img" aria-label="一组青色粒子构成旋转的钢管三维模型，橙色粒子标记表面缺陷区域">
-              <span class="sr-only">交互式钢管表面缺陷粒子模型。选择不同权重后，橙色缺陷簇和概率响应会发生变化。</span>
+            <div class="particle-stage" id="particleStage" role="img" aria-label="一组青色粒子构成旋转的钢管三维模型，当前尚未载入图像且没有缺陷标记">
+              <span class="sr-only">交互式钢管表面缺陷粒子模型。上传图像并完成真实 ONNX 推理后，橙色缺陷粒子会依据分割掩码生成。</span>
             </div>
             <div class="scan-beam" aria-hidden="true"></div>
 
@@ -83,31 +83,31 @@
               </div>
               <div class="stage-title-row">
                 <h1 id="inspect-title">缺陷概率勘探</h1>
-                <span class="model-state" id="modelStateBadge">BEST WEIGHT</span>
+                <span class="model-state" id="modelStateBadge">REAL ONNX · NO INPUT</span>
               </div>
-              <p>选择权重，沿管面执行扫描并读取概率响应。</p>
+              <p>上传线激光图像，在浏览器内执行真实权重推理；未上传前不计算、不生成缺陷。</p>
             </div>
 
             <div class="scene-readout" aria-label="模型场景状态">
               <span class="scene-axis">θ 184.20°</span>
               <span class="scene-axis">Z 03.64 m</span>
-              <span class="scene-live"><span></span>LIVE SURFACE</span>
+              <span class="scene-live" id="runtimeSceneState"><span></span>ONNX READY</span>
             </div>
 
             <div class="metric-floats" aria-label="当前模型关键指标">
               <div class="metric-float">
-                <span class="metric-label">DICE</span>
-                <strong id="floatDice">87.55</strong>
-                <small>%</small>
+                <span class="metric-label">MASK PX</span>
+                <strong id="floatDice">—</strong>
+                <small>px</small>
               </div>
               <div class="metric-float">
                 <span class="metric-label">LATENCY</span>
-                <strong id="floatLatency">2.36</strong>
+                <strong id="floatLatency">—</strong>
                 <small>ms</small>
               </div>
               <div class="metric-float metric-float-accent">
                 <span class="metric-label">DEFECT</span>
-                <strong id="floatDefect">2.02</strong>
+                <strong id="floatDefect">0.00</strong>
                 <small>%</small>
               </div>
             </div>
@@ -166,37 +166,43 @@
                   role="tabpanel"
                   aria-labelledby="tab-probability"
                 >
-                  <div class="confidence-row">
+                  <div class="report-empty" id="reportEmpty">
+                    <i data-lucide="scan-search" aria-hidden="true"></i>
+                    <strong>等待图像输入</strong>
+                    <p>上传后会显示分割概率、缺陷区域和识别类别的真实模型输出。</p>
+                  </div>
+
+                  <div class="confidence-row" id="confidenceRow" hidden>
                     <div class="confidence-gauge" id="confidenceGauge">
                       <span class="confidence-ring" aria-hidden="true"></span>
-                      <strong id="confidenceValue">99.92</strong>
+                      <strong id="confidenceValue">—</strong>
                       <small>置信度 %</small>
                     </div>
                     <div class="confidence-copy">
                       <span class="mini-label">TOP CLASS</span>
-                      <strong id="topClass">crazing</strong>
-                      <p>主要概率集中于热裂纹响应，建议复核周向连续缺陷。</p>
+                      <strong id="topClass">等待推理</strong>
+                      <p>当前没有可用的模型输出。</p>
                     </div>
                   </div>
 
-                  <div class="probability-list" id="probabilityList" aria-live="polite"></div>
+                  <div class="probability-list" id="probabilityList" aria-live="polite" hidden></div>
 
-                  <div class="report-metric-grid">
+                  <div class="report-metric-grid" id="reportMetricGrid" hidden>
                     <div>
-                      <span>Dice</span>
-                      <strong id="reportDice">0.8755</strong>
+                      <span>缺陷像素</span>
+                      <strong id="reportDice">—</strong>
                     </div>
                     <div>
-                      <span>IoU</span>
-                      <strong id="reportIou">0.7786</strong>
+                      <span>连通区域</span>
+                      <strong id="reportIou">—</strong>
                     </div>
                     <div>
-                      <span>Boundary-F1</span>
-                      <strong id="reportBoundary">0.3390</strong>
+                      <span>推理耗时</span>
+                      <strong id="reportBoundary">—</strong>
                     </div>
                     <div>
-                      <span>参数</span>
-                      <strong id="reportParams">1.133 M</strong>
+                      <span>权重参数</span>
+                      <strong id="reportParams">—</strong>
                     </div>
                   </div>
                 </div>
@@ -211,20 +217,24 @@
                   <div class="visual-compare">
                     <figure>
                       <img
-                        src="./assets/segmentation-overlay.png"
-                        alt="线激光钢管灰度图上的橙色缺陷概率叠加"
+                        id="reportOverlayImage"
+                        alt="当前上传图像的缺陷概率叠加"
                         width="320"
                         height="320"
+                        hidden
                       />
+                      <div class="image-placeholder" id="overlayPlaceholder">等待推理</div>
                       <figcaption>概率叠加</figcaption>
                     </figure>
                     <figure>
                       <img
-                        src="./assets/segmentation-probability.png"
-                        alt="线激光钢管缺陷二值概率掩码"
+                        id="reportMaskImage"
+                        alt="当前上传图像经阈值处理后的二值缺陷掩码"
                         width="320"
                         height="320"
+                        hidden
                       />
+                      <div class="image-placeholder" id="maskPlaceholder">等待推理</div>
                       <figcaption>分割掩码</figcaption>
                     </figure>
                   </div>
@@ -242,20 +252,22 @@
                   aria-labelledby="tab-explain"
                   hidden
                 >
-                  <figure class="gradcam-figure">
+                  <figure class="gradcam-figure recognition-crop-figure">
                     <img
-                      src="./assets/recognition-gradcam.png"
-                      alt="缺陷分类模型的 Grad-CAM 热力图，红色区域代表更高关注度"
-                      width="256"
-                      height="380"
+                      id="recognitionCropImage"
+                      alt="送入识别模型的灰度裁剪与掩码叠加"
+                      width="128"
+                      height="128"
+                      hidden
                     />
+                    <div class="image-placeholder recognition-placeholder" id="cropPlaceholder">等待缺陷区域</div>
                     <figcaption>
-                      <span>Grad-CAM 关注区</span>
+                      <span>识别模型真实输入</span>
                       <strong id="explainModel">MobileNetV2</strong>
                     </figcaption>
                   </figure>
                   <p class="explain-copy">
-                    热区沿周向纹理聚集，与分割掩码的主连通域一致。解释图仅用于复核归因，不替代现场验收。
+                    识别输入由原图缺陷裁剪和分割掩码组成。裁剪框按掩码边界外扩 20%，与训练数据预处理保持一致。
                   </p>
                 </div>
               </div>
@@ -285,17 +297,17 @@
                     >
                       <span>SmallUNet</span>
                       <small>边界增强</small>
-                      <em>87.55%</em>
+                      <em>加载中</em>
                     </button>
-                    <button class="weight-option" type="button" data-seg="small-unet" aria-pressed="false">
+                    <button class="weight-option" type="button" data-seg="small-unet-original" aria-pressed="false">
                       <span>SmallUNet</span>
-                      <small>基础权重</small>
-                      <em>87.54%</em>
+                      <small>原始最佳</small>
+                      <em>加载中</em>
                     </button>
-                    <button class="weight-option" type="button" data-seg="segformer-lite" aria-pressed="false">
-                      <span>SegFormer-Lite</span>
-                      <small>轻量对照</small>
-                      <em>85.83%</em>
+                    <button class="weight-option" type="button" data-seg="small-unet-ablation" aria-pressed="false">
+                      <span>SmallUNet</span>
+                      <small>消融最佳</small>
+                      <em>加载中</em>
                     </button>
                   </div>
                 </fieldset>
@@ -310,18 +322,18 @@
                       aria-pressed="true"
                     >
                       <span>MobileNetV2</span>
-                      <small>最高准确率</small>
-                      <em>99.18%</em>
+                      <small>基准最佳</small>
+                      <em>加载中</em>
                     </button>
                     <button class="weight-option" type="button" data-rec="small-classifier" aria-pressed="false">
                       <span>SmallClassifier</span>
-                      <small>双通道</small>
-                      <em>98.89%</em>
+                      <small>消融最佳</small>
+                      <em>加载中</em>
                     </button>
-                    <button class="weight-option" type="button" data-rec="small-cbam" aria-pressed="false">
-                      <span>Small + CBAM</span>
-                      <small>注意力对照</small>
-                      <em>98.65%</em>
+                    <button class="weight-option" type="button" data-rec="small-classifier-original" aria-pressed="false">
+                      <span>SmallClassifier</span>
+                      <small>原始最佳</small>
+                      <em>加载中</em>
                     </button>
                   </div>
                 </fieldset>
@@ -350,21 +362,33 @@
               </div>
 
               <div class="control-actions">
-                <div class="dataset-context">
-                  <i data-lucide="database" aria-hidden="true"></i>
-                  <span>line-scan-047 · 8,420 帧 · 12 根钢管</span>
+                <input
+                  class="visually-hidden-input"
+                  type="file"
+                  id="inferenceImageUpload"
+                  accept="image/png,image/jpeg,image/bmp,image/tiff,image/webp"
+                />
+                <div class="dataset-context inference-file-context">
+                  <img id="uploadedImagePreview" alt="" width="42" height="42" hidden />
+                  <i data-lucide="image-plus" aria-hidden="true"></i>
+                  <span id="uploadedFileMeta">尚未选择图像</span>
                 </div>
-                <button class="button button-primary button-run" type="button" id="runInferenceBtn">
-                  <i data-lucide="crosshair" aria-hidden="true"></i>
-                  <span>执行推理</span>
-                  <small>ENTER</small>
-                </button>
+                <div class="inference-action-group">
+                  <label class="button button-secondary upload-image-button" for="inferenceImageUpload" tabindex="0">
+                    <i data-lucide="upload" aria-hidden="true"></i>
+                    <span>上传图像</span>
+                  </label>
+                  <button class="button button-primary button-run" type="button" id="runInferenceBtn" disabled>
+                    <i data-lucide="crosshair" aria-hidden="true"></i>
+                    <span>执行分割与识别</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
           <div class="view-footnote">
-            <span>公开数据研究权重，不代表真实产线验收指标。</span>
-            <span class="footnote-right">分割 320×320 · 识别 128×128</span>
+            <span id="weightIntegrityNote">真实 PyTorch 权重导出为 ONNX，在浏览器本地执行；未上传图像前不产生推理结果。</span>
+            <span class="footnote-right">ONNX · WASM · 分割 320×320 · 识别 128×128</span>
           </div>
         </section>
 

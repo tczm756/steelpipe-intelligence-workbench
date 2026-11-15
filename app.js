@@ -1,4 +1,5 @@
 import * as THREE from "./vendor/three.module.min.js";
+import * as ort from "./vendor/onnxruntime/ort.wasm.min.mjs";
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
@@ -6,45 +7,32 @@ const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+ort.env.wasm.wasmPaths = new URL("./vendor/onnxruntime/", window.location.href).href;
+ort.env.wasm.numThreads = 1;
+ort.env.wasm.proxy = false;
+ort.env.logLevel = "error";
+
 const segmentationModels = {
   "small-unet-boundary": {
     id: "small-unet-boundary",
     name: "SmallUNet + 边界感知损失",
-    shortName: "SmallUNet Boundary",
-    dice: 0.8755293484536486,
-    iou: 0.7786149016463885,
-    boundary: 0.3390257961961991,
-    params: 1.132657,
-    latency: 2.3599029518663883,
-    badge: "BEST WEIGHT",
-    defectScale: 1,
-    defectSpread: 0.95,
+    badge: "BOUNDARY WEIGHT",
+    manifest: null,
+    session: null,
   },
-  "small-unet": {
-    id: "small-unet",
-    name: "SmallUNet",
-    shortName: "SmallUNet",
-    dice: 0.8753907939588378,
-    iou: 0.7783955976332143,
-    boundary: 0.33679891394951106,
-    params: 1.132657,
-    latency: 2.3095978423953056,
-    badge: "BALANCED WEIGHT",
-    defectScale: 0.92,
-    defectSpread: 1.08,
+  "small-unet-original": {
+    id: "small-unet-original",
+    name: "SmallUNet 原始最佳",
+    badge: "ORIGINAL WEIGHT",
+    manifest: null,
+    session: null,
   },
-  "segformer-lite": {
-    id: "segformer-lite",
-    name: "SegFormer-Lite",
-    shortName: "SegFormer-Lite",
-    dice: 0.8583272263030698,
-    iou: 0.7518242831888112,
-    boundary: 0.28136455527912,
-    params: 0.475873,
-    latency: 2.278614602982998,
-    badge: "LIGHTWEIGHT",
-    defectScale: 0.82,
-    defectSpread: 1.32,
+  "small-unet-ablation": {
+    id: "small-unet-ablation",
+    name: "SmallUNet 消融最佳",
+    badge: "ABLATION WEIGHT",
+    manifest: null,
+    session: null,
   },
 };
 
@@ -52,40 +40,25 @@ const recognitionModels = {
   mobilenetv2: {
     id: "mobilenetv2",
     name: "MobileNetV2",
-    accuracy: 0.9917874396135266,
-    macroF1: 0.991653493125267,
-    params: 0.356454,
-    latency: 1.3706882484257221,
-    confidenceBias: 1,
+    badge: "BENCHMARK WEIGHT",
+    manifest: null,
+    session: null,
   },
   "small-classifier": {
     id: "small-classifier",
-    name: "SmallDefectClassifier",
-    accuracy: 0.9888888888888889,
-    macroF1: 0.988126157979393,
-    params: 0.685638,
-    latency: 1.3301846571266651,
-    confidenceBias: 0.994,
+    name: "SmallDefectClassifier 消融最佳",
+    badge: "ABLATION WEIGHT",
+    manifest: null,
+    session: null,
   },
-  "small-cbam": {
-    id: "small-cbam",
-    name: "SmallDefectClassifier + CBAM",
-    accuracy: 0.9864734299516909,
-    macroF1: 0.9849417404852042,
-    params: 0.698702,
-    latency: 2.959190495312214,
-    confidenceBias: 0.987,
+  "small-classifier-original": {
+    id: "small-classifier-original",
+    name: "SmallDefectClassifier 原始最佳",
+    badge: "ORIGINAL WEIGHT",
+    manifest: null,
+    session: null,
   },
 };
-
-const defectClasses = [
-  { id: "crazing", label: "crazing", base: 0.9991534948348999 },
-  { id: "inclusion", label: "inclusion", base: 0.00000879049093782669 },
-  { id: "patches", label: "patches", base: 0.000046412507799686864 },
-  { id: "pitted_surface", label: "pitted_surface", base: 0.00000003170485339816 },
-  { id: "rolled-in_scale", label: "rolled-in_scale", base: 0.0007830890826880932 },
-  { id: "scratches", label: "scratches", base: 0.00000806219395599328 },
-];
 
 const trainingStages = [
   { id: "data", label: "数据锁定", short: "01" },
@@ -123,7 +96,7 @@ const archiveRecords = [
     hardware: "RTX 3080 Ti",
     duration: "1h 42m",
     runs: 12,
-    weights: { seg: "small-unet", rec: "small-classifier" },
+    weights: { seg: "small-unet-ablation", rec: "small-classifier" },
     note: "Plain U-Net / SmallUNet 与单双通道三随机种子对照。",
   },
   {
@@ -153,7 +126,7 @@ const archiveRecords = [
     hardware: "Local CUDA",
     duration: "4m 32s",
     runs: 1,
-    weights: { seg: "small-unet", rec: "small-classifier" },
+    weights: { seg: "small-unet-original", rec: "small-classifier-original" },
     note: "单图推理复现，输出概率图、掩码与叠加图。",
   },
   {
@@ -168,7 +141,7 @@ const archiveRecords = [
     hardware: "RTX 3080 Ti",
     duration: "00m 48s",
     runs: 1,
-    weights: { seg: "small-unet", rec: "small-cbam" },
+    weights: {},
     note: "显存碎片导致第三折中断，保留失败上下文。",
   },
 ];
@@ -178,6 +151,21 @@ const state = {
   segmentModel: segmentationModels["small-unet-boundary"],
   recognitionModel: recognitionModels.mobilenetv2,
   threshold: 0.42,
+  manifest: null,
+  manifestReady: false,
+  manifestError: null,
+  modelCache: new Map(),
+  imageFile: null,
+  imageBitmap: null,
+  sourceGrayCanvas: null,
+  imageObjectUrl: null,
+  segProbability: null,
+  segGray: null,
+  segLatencyMs: 0,
+  mask: null,
+  analysis: null,
+  thresholdTimer: null,
+  inferenceStage: "idle",
   inferenceRunning: false,
   trainingRunning: true,
   trainingComplete: false,
@@ -290,7 +278,7 @@ class ParticlePipe {
 
       this.createStructure();
       this.createAmbientDust();
-      this.setDefects(state.segmentModel);
+      this.setDefectsFromAnalysis(null);
       this.resize();
 
       this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -376,9 +364,9 @@ class ParticlePipe {
     this.scanRing = new THREE.Mesh(
       new THREE.TorusGeometry(1.47, 0.014, 6, 96),
       new THREE.MeshBasicMaterial({
-        color: 0xff8a3d,
+        color: 0x59f4e4,
         transparent: true,
-        opacity: 0.62,
+        opacity: 0.38,
         depthWrite: false,
         blending: THREE.AdditiveBlending,
       }),
@@ -393,7 +381,6 @@ class ParticlePipe {
     const positions = new Float32Array(count * 3);
     const colors = new Float32Array(count * 3);
     const cyan = new THREE.Color("#4fe9dd");
-    const orange = new THREE.Color("#ff8a3d");
 
     for (let i = 0; i < count; i += 1) {
       const radius = 2.25 + Math.random() * 4.6;
@@ -403,7 +390,7 @@ class ParticlePipe {
       positions[i * 3 + 1] = y;
       positions[i * 3 + 2] = Math.sin(theta) * radius - 1.2;
 
-      const color = Math.random() > 0.91 ? orange : cyan;
+      const color = cyan;
       const intensity = 0.18 + Math.random() * 0.34;
       colors[i * 3] = color.r * intensity;
       colors[i * 3 + 1] = color.g * intensity;
@@ -425,7 +412,7 @@ class ParticlePipe {
     this.scene.add(this.ambientPoints);
   }
 
-  setDefects(model) {
+  setDefectsFromAnalysis(analysis) {
     if (this.defectGroup) {
       this.group.remove(this.defectGroup);
       this.defectGroup.traverse((child) => {
@@ -434,35 +421,37 @@ class ParticlePipe {
       });
     }
 
-    const clusterSpecs = [
-      { theta: 0.34, y: 1.82, spread: 0.11, length: 0.34, count: 170 },
-      { theta: 0.46, y: 0.68, spread: 0.09, length: 0.5, count: 270 },
-      { theta: 0.76, y: 0.14, spread: 0.055, length: 0.26, count: 120 },
-      { theta: 0.42, y: -1.56, spread: 0.085, length: 0.6, count: 200 },
-      { theta: 0.12, y: -3.03, spread: 0.06, length: 0.24, count: 78 },
-    ];
+    this.setScanState(Boolean(analysis?.pixelCount));
+    if (!analysis?.mask || !analysis.pixelCount) return;
 
     const positions = [];
     const colors = [];
     const orange = new THREE.Color("#ff8a3d");
     const warm = new THREE.Color("#ffd0a8");
-
-    clusterSpecs.forEach((cluster, clusterIndex) => {
-      const count = Math.round(cluster.count * model.defectScale);
-      const localSpread = cluster.spread * model.defectSpread;
-      for (let i = 0; i < count; i += 1) {
-        const gaussian = (Math.random() + Math.random() + Math.random() - 1.5) / 1.5;
-        const theta = cluster.theta + gaussian * localSpread;
-        const y = cluster.y + (Math.random() - 0.5) * cluster.length * (0.65 + Math.random() * 0.7);
-        const radialJitter = (Math.random() - 0.5) * 0.035;
-        const radius = 1.435 + radialJitter;
-        positions.push(Math.cos(theta) * radius, y, Math.sin(theta) * radius);
-
-        const glow = 0.5 + Math.random() * 0.5;
-        const color = (clusterIndex + i) % 7 === 0 ? warm : orange;
-        colors.push(color.r * glow, color.g * glow, color.b * glow);
+    const foreground = [];
+    for (let index = 0; index < analysis.mask.length; index += 1) {
+      if (analysis.mask[index] && (index % 2 === 0 || analysis.probability[index] > 0.75)) {
+        foreground.push(index);
       }
+    }
+    const stride = Math.max(1, Math.ceil(foreground.length / 1250));
+    const sampled = foreground.filter((_, index) => index % stride === 0);
+
+    sampled.forEach((index, sampleIndex) => {
+      const x = index % analysis.width;
+      const imageY = Math.floor(index / analysis.width);
+      const theta = (imageY / analysis.height) * Math.PI * 2;
+      const y = -3.7 + (x / analysis.width) * 7.4;
+      const radius = 1.435 + (Math.random() - 0.5) * 0.04;
+      positions.push(Math.cos(theta) * radius, y, Math.sin(theta) * radius);
+
+      const probability = analysis.probability[index];
+      const glow = 0.55 + clamp(probability, 0, 1) * 0.45;
+      const color = (sampleIndex + x + imageY) % 11 === 0 ? warm : orange;
+      colors.push(color.r * glow, color.g * glow, color.b * glow);
     });
+
+    if (!positions.length) return;
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
@@ -479,6 +468,12 @@ class ParticlePipe {
 
     this.defectGroup = new THREE.Points(geometry, material);
     this.group.add(this.defectGroup);
+  }
+
+  setScanState(hasDefects) {
+    if (!this.scanRing) return;
+    this.scanRing.material.color.set(hasDefects ? 0xff8a3d : 0x59f4e4);
+    this.scanRing.material.opacity = hasDefects ? 0.58 : 0.28;
   }
 
   onPointerMove(event) {
@@ -519,7 +514,8 @@ class ParticlePipe {
       this.group.position.y = Math.sin(elapsed * 0.55) * 0.035;
       this.ambientPoints.rotation.y = -elapsed * 0.012;
       this.scanRing.position.y = -3.55 + ((elapsed * 0.42) % 1) * 7.1;
-      this.scanRing.material.opacity = 0.28 + Math.sin(elapsed * 2.1) * 0.15;
+      this.scanRing.material.opacity =
+        (this.defectGroup ? 0.48 : 0.22) + Math.sin(elapsed * 2.1) * 0.12;
       if (this.defectGroup) {
         this.defectGroup.material.opacity = 0.82 + Math.sin(elapsed * 2.7) * 0.1;
       }
@@ -565,6 +561,7 @@ function init() {
 
   window.particlePipe = new ParticlePipe($("#particleStage"));
   window.particlePipe.setVisible(state.view === "inspect");
+  loadModelManifest();
   startTrainingClock();
 }
 
@@ -698,21 +695,29 @@ function setupTabGroup({ tabSelector, panelSelector, dataAttribute, onChange }) 
 
 function setupInferenceControls() {
   $$(".weight-option[data-seg]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
+      if (state.inferenceRunning || !state.manifestReady) return;
       state.segmentModel = segmentationModels[button.dataset.seg];
       $$(".weight-option[data-seg]").forEach((item) => {
         const selected = item === button;
         item.classList.toggle("is-selected", selected);
         item.setAttribute("aria-pressed", String(selected));
       });
+      state.analysis = null;
+      state.mask = null;
+      state.segProbability = null;
+      window.particlePipe?.setDefectsFromAnalysis(null);
       updateInferenceUI();
-      window.particlePipe?.setDefects(state.segmentModel);
       showToast(`分割权重切换为 ${state.segmentModel.name}。`);
+      if (state.imageBitmap) {
+        await runInference();
+      }
     });
   });
 
   $$(".weight-option[data-rec]").forEach((button) => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", async () => {
+      if (state.inferenceRunning || !state.manifestReady) return;
       state.recognitionModel = recognitionModels[button.dataset.rec];
       $$(".weight-option[data-rec]").forEach((item) => {
         const selected = item === button;
@@ -721,6 +726,9 @@ function setupInferenceControls() {
       });
       updateInferenceUI();
       showToast(`识别权重切换为 ${state.recognitionModel.name}。`);
+      if (state.segProbability && state.imageBitmap) {
+        await recomputeFromProbability();
+      }
     });
   });
 
@@ -729,71 +737,197 @@ function setupInferenceControls() {
     $("#thresholdValue").textContent = state.threshold.toFixed(2);
     $("#imageThreshold").textContent = state.threshold.toFixed(2);
     updateInferenceUI();
+    window.clearTimeout(state.thresholdTimer);
+    if (state.segProbability && !state.inferenceRunning) {
+      state.thresholdTimer = window.setTimeout(() => recomputeFromProbability(), 180);
+    }
   });
 
   $("#runInferenceBtn").addEventListener("click", runInference);
+  $("#inferenceImageUpload").addEventListener("change", (event) => {
+    const [file] = event.target.files || [];
+    if (file) {
+      handleInferenceImage(file);
+      event.target.value = "";
+    }
+  });
+
+  const uploadLabel = $('label[for="inferenceImageUpload"]');
+  uploadLabel.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      $("#inferenceImageUpload").click();
+    }
+  });
+}
+
+async function loadModelManifest() {
+  try {
+    const response = await fetch("./models/manifest.json", { cache: "no-cache" });
+    if (!response.ok) {
+      throw new Error(`模型清单加载失败：HTTP ${response.status}`);
+    }
+    const manifest = await response.json();
+    if (!Array.isArray(manifest.segmentation) || !Array.isArray(manifest.recognition)) {
+      throw new Error("模型清单格式无效。");
+    }
+
+    manifest.segmentation.forEach((entry) => {
+      const model = segmentationModels[entry.id];
+      if (model) {
+        model.manifest = entry;
+        model.name = entry.displayName;
+        model.file = entry.file;
+      }
+    });
+    manifest.recognition.forEach((entry) => {
+      const model = recognitionModels[entry.id];
+      if (model) {
+        model.manifest = entry;
+        model.name = entry.displayName;
+        model.file = entry.file;
+      }
+    });
+
+    const missing = [
+      ...Object.values(segmentationModels),
+      ...Object.values(recognitionModels),
+    ].filter((model) => !model.file);
+    if (missing.length) {
+      throw new Error(`模型清单缺少权重：${missing.map((model) => model.id).join(", ")}`);
+    }
+
+    state.manifest = manifest;
+    state.manifestReady = true;
+    updateWeightOptionLabels();
+    $("#modelStateBadge").textContent = "REAL ONNX READY";
+    $("#weightIntegrityNote").textContent =
+      `已加载 ${manifest.segmentation.length + manifest.recognition.length} 个真实 PyTorch 导出权重；浏览器仅执行所选检查点。`;
+    setSceneState("ONNX READY");
+    syncRunButtonState();
+  } catch (error) {
+    state.manifestError = error;
+    console.error(error);
+    $("#modelStateBadge").textContent = "MODEL MANIFEST ERROR";
+    $("#weightIntegrityNote").textContent = "真实权重清单加载失败，推理功能已停用。";
+    setSceneState("WEIGHT ERROR");
+    setReportEmpty("error", "模型清单不可用", "请确认 models/manifest.json 与 ONNX 文件已正确发布。");
+    showToast("真实权重清单加载失败，请检查模型文件。", "warning");
+    $$(".weight-option").forEach((button) => {
+      button.disabled = true;
+    });
+    syncRunButtonState();
+  }
+}
+
+function updateWeightOptionLabels() {
+  $$(".weight-option[data-seg]").forEach((button) => {
+    const model = segmentationModels[button.dataset.seg];
+    const em = button.querySelector("em");
+    if (model?.manifest?.metrics?.dice != null) {
+      em.textContent = `DICE ${(model.manifest.metrics.dice * 100).toFixed(2)}%`;
+      button.disabled = false;
+    } else {
+      em.textContent = "不可用";
+      button.disabled = true;
+    }
+  });
+  $$(".weight-option[data-rec]").forEach((button) => {
+    const model = recognitionModels[button.dataset.rec];
+    const em = button.querySelector("em");
+    if (model?.manifest?.metrics?.accuracy != null) {
+      em.textContent = `ACC ${(model.manifest.metrics.accuracy * 100).toFixed(2)}%`;
+      button.disabled = false;
+    } else {
+      em.textContent = "不可用";
+      button.disabled = true;
+    }
+  });
 }
 
 function updateInferenceUI() {
   const seg = state.segmentModel;
   const rec = state.recognitionModel;
-  const report = buildProbabilityReport();
+  const analysis = state.analysis;
 
-  $("#modelStateBadge").textContent = seg.badge;
-  $("#floatDice").textContent = (seg.dice * 100).toFixed(2);
-  $("#floatLatency").textContent = (seg.latency + rec.latency).toFixed(2);
-  $("#floatDefect").textContent = report.defectFraction.toFixed(2);
-  $("#reportDice").textContent = seg.dice.toFixed(4);
-  $("#reportIou").textContent = seg.iou.toFixed(4);
-  $("#reportBoundary").textContent = seg.boundary.toFixed(4);
-  $("#reportParams").textContent = `${(seg.params + rec.params).toFixed(3)} M`;
   $("#explainModel").textContent = rec.name;
   $("#imageThreshold").textContent = state.threshold.toFixed(2);
+  $("#reportParams").textContent =
+    seg.manifest && rec.manifest
+      ? `${(seg.manifest.parametersM + rec.manifest.parametersM).toFixed(3)} M`
+      : "—";
 
-  const confidence = report.confidence * 100;
+  if (!analysis) {
+    $("#floatDice").textContent = "—";
+    $("#floatLatency").textContent = "—";
+    $("#floatDefect").textContent = "0.00";
+    $("#modelStateBadge").textContent = state.manifestReady
+      ? "REAL ONNX · NO INPUT"
+      : state.manifestError
+        ? "MODEL MANIFEST ERROR"
+        : "LOADING REAL WEIGHTS";
+    $("#confidenceRow").hidden = true;
+    $("#probabilityList").hidden = true;
+    $("#reportMetricGrid").hidden = true;
+    updateReportImages(null);
+    if (!state.manifestError) {
+      setReportEmpty(
+        "idle",
+        state.manifestReady ? "等待图像输入" : "正在加载真实权重",
+        state.manifestReady
+          ? "上传后会显示分割概率、缺陷区域和识别类别的真实模型输出。"
+          : "首次进入不会执行计算，模型只会在上传图像后按需加载。",
+      );
+    }
+    return;
+  }
+
+  const confidence = analysis.confidence ? analysis.confidence * 100 : 0;
+  $("#floatDice").textContent = analysis.pixelCount.toLocaleString("zh-CN");
+  $("#floatLatency").textContent = analysis.totalLatencyMs.toFixed(0);
+  $("#floatDefect").textContent = analysis.defectFraction.toFixed(2);
+  $("#reportDice").textContent = analysis.pixelCount.toLocaleString("zh-CN");
+  $("#reportIou").textContent = String(analysis.regionCount);
+  $("#reportBoundary").textContent = `${analysis.totalLatencyMs.toFixed(0)} ms`;
+  $("#reportMetricGrid").hidden = false;
+  updateReportImages(analysis);
+
+  if (!analysis.pixelCount) {
+    $("#modelStateBadge").textContent = "ONNX RESULT · NO DEFECT";
+    $("#confidenceRow").hidden = true;
+    $("#probabilityList").hidden = true;
+    setReportEmpty(
+      "no-defect",
+      "未检测到超过阈值的缺陷",
+      `当前阈值 ${state.threshold.toFixed(2)}，分割掩码为 0 像素，因此未调用识别模型。`,
+    );
+    return;
+  }
+
+  if (!analysis.topClass) {
+    $("#modelStateBadge").textContent = "ONNX RESULT · CLASSIFYING";
+    $("#confidenceRow").hidden = true;
+    $("#probabilityList").hidden = true;
+    setReportEmpty(
+      "idle",
+      "分割完成，正在识别",
+      `掩码包含 ${analysis.pixelCount.toLocaleString("zh-CN")} 个缺陷像素，正在生成 20% 外扩裁剪并执行分类模型。`,
+    );
+    return;
+  }
+
+  $("#modelStateBadge").textContent = `ONNX RESULT · ${analysis.topClass.label.toUpperCase()}`;
+  setReportEmpty("hidden", "", "");
+  $("#confidenceRow").hidden = false;
+  $("#probabilityList").hidden = false;
   $("#confidenceValue").textContent = confidence.toFixed(2);
   $("#confidenceGauge .confidence-ring").style.background =
     `conic-gradient(var(--cyan) 0deg ${confidence * 3.6}deg, rgba(89, 244, 228, 0.09) ${confidence * 3.6}deg 360deg)`;
-  $("#topClass").textContent = report.topClass.label;
+  $("#topClass").textContent = analysis.topClass.label;
   $("#confidenceGauge").setAttribute("aria-label", `分类置信度 ${confidence.toFixed(2)}%`);
-
-  const copy = $("#topClass").parentElement.querySelector("p");
-  copy.textContent =
-    state.threshold < 0.32
-      ? "较低阈值扩大了响应区域，建议用验收集确认误报率。"
-      : state.threshold > 0.58
-        ? "较高阈值收紧了缺陷区域，细长裂纹可能被截断。"
-        : "主要概率集中于热裂纹响应，建议复核周向连续缺陷。";
-
-  renderProbabilityList(report.probabilities);
-}
-
-function buildProbabilityReport() {
-  const rec = state.recognitionModel;
-  const seg = state.segmentModel;
-  const confidence = clamp(rec.accuracy * rec.confidenceBias * 0.997, 0.945, 0.9994);
-  const top = defectClasses[0];
-  const remaining = 1 - confidence;
-  const others = defectClasses.slice(1);
-  const otherBaseTotal = others.reduce((sum, item) => sum + item.base, 0);
-  const probabilities = [
-    { ...top, value: confidence },
-    ...others.map((item) => ({
-      ...item,
-      value: otherBaseTotal > 0 ? remaining * (item.base / otherBaseTotal) : remaining / others.length,
-    })),
-  ].sort((a, b) => b.value - a.value);
-
-  const thresholdFactor = Math.pow(0.42 / state.threshold, 0.58);
-  const modelFactor = 0.88 + (seg.dice - 0.82) * 0.88;
-  const defectFraction = clamp(2.0224609375 * thresholdFactor * modelFactor, 0.38, 9.8);
-
-  return {
-    confidence,
-    probabilities,
-    topClass: probabilities[0],
-    defectFraction,
-  };
+  $("#topClass").parentElement.querySelector("p").textContent =
+    `分类 softmax 来自 ${rec.name}，输入为掩码外扩 20% 后的真实缺陷裁剪。`;
+  renderProbabilityList(analysis.probabilities);
 }
 
 function renderProbabilityList(probabilities) {
@@ -816,32 +950,575 @@ function renderProbabilityList(probabilities) {
     .join("");
 }
 
-function runInference() {
+function setReportEmpty(mode, title, detail) {
+  const empty = $("#reportEmpty");
+  if (mode === "hidden") {
+    empty.hidden = true;
+    return;
+  }
+  empty.hidden = false;
+  empty.classList.toggle("is-no-defect", mode === "no-defect");
+  empty.querySelector("strong").textContent = title;
+  empty.querySelector("p").textContent = detail;
+}
+
+function updateReportImages(analysis) {
+  setReportImage(
+    "#reportOverlayImage",
+    "#overlayPlaceholder",
+    analysis?.overlayDataUrl,
+    "等待推理",
+  );
+  setReportImage(
+    "#reportMaskImage",
+    "#maskPlaceholder",
+    analysis?.maskDataUrl,
+    "等待推理",
+  );
+  setReportImage(
+    "#recognitionCropImage",
+    "#cropPlaceholder",
+    analysis?.cropDataUrl,
+    analysis?.pixelCount ? "等待识别" : "无缺陷区域",
+  );
+}
+
+function setReportImage(imageSelector, placeholderSelector, dataUrl, placeholderText) {
+  const image = $(imageSelector);
+  const placeholder = $(placeholderSelector);
+  if (dataUrl) {
+    image.src = dataUrl;
+    image.hidden = false;
+    placeholder.hidden = true;
+  } else {
+    image.removeAttribute("src");
+    image.hidden = true;
+    placeholder.hidden = false;
+    placeholder.textContent = placeholderText;
+  }
+}
+
+async function handleInferenceImage(file) {
+  if (!file.type.startsWith("image/") && !/\.(png|jpe?g|bmp|tiff?|webp)$/i.test(file.name)) {
+    showToast("请选择 PNG、JPEG、BMP、TIFF 或 WebP 图像。", "warning");
+    return;
+  }
+  if (file.size > 25 * 1024 * 1024) {
+    showToast("图像超过 25 MB，请先压缩后再上传。", "warning");
+    return;
+  }
+
+  try {
+    const bitmap = await createImageBitmap(file, { imageOrientation: "from-image" }).catch(
+      async () => {
+        const url = URL.createObjectURL(file);
+        const image = new Image();
+        image.src = url;
+        await image.decode();
+        URL.revokeObjectURL(url);
+        return image;
+      },
+    );
+    state.imageBitmap?.close?.();
+    state.imageBitmap = bitmap;
+    state.imageFile = file;
+    state.sourceGrayCanvas = createSourceGrayCanvas(bitmap);
+    state.segProbability = null;
+    state.mask = null;
+    state.analysis = null;
+    if (state.imageObjectUrl) URL.revokeObjectURL(state.imageObjectUrl);
+    state.imageObjectUrl = URL.createObjectURL(file);
+
+    const preview = $("#uploadedImagePreview");
+    preview.src = state.imageObjectUrl;
+    preview.alt = `上传图像预览：${file.name}`;
+    preview.hidden = false;
+    $("#uploadedFileMeta").textContent =
+      `${file.name} · ${bitmap.width} × ${bitmap.height} · ${formatBytes(file.size)}`;
+    $(".inference-file-context > i, .inference-file-context > svg")?.setAttribute(
+      "hidden",
+      "",
+    );
+    syncRunButtonState();
+    updateInferenceUI();
+    await runInference();
+  } catch (error) {
+    console.error(error);
+    showToast("图像读取失败，请更换文件。", "warning");
+  }
+}
+
+function syncRunButtonState() {
+  const runButton = $("#runInferenceBtn");
+  if (!runButton) return;
+  runButton.disabled =
+    !state.manifestReady || !state.imageBitmap || state.inferenceRunning;
+}
+
+async function getModelSession(model) {
+  if (model.session) return model.session;
+  if (!model.manifest?.file) throw new Error(`权重文件不存在：${model.id}`);
+  const modelUrl = new URL(model.manifest.file, window.location.href).href;
+  model.session = await ort.InferenceSession.create(modelUrl, {
+    executionProviders: ["wasm"],
+    graphOptimizationLevel: "all",
+    logSeverityLevel: 3,
+  });
+  return model.session;
+}
+
+async function runInference() {
   if (state.inferenceRunning) return;
+  if (!state.manifestReady) {
+    showToast("真实权重仍在加载，请稍候。", "warning");
+    return;
+  }
+  if (!state.imageBitmap) {
+    showToast("请先上传一张线激光图像。", "warning");
+    return;
+  }
+
   state.inferenceRunning = true;
+  syncRunButtonState();
   const button = $("#runInferenceBtn");
-  const badge = $("#modelStateBadge");
-  const originalBadge = badge.textContent;
   button.classList.add("is-running");
   button.setAttribute("aria-busy", "true");
-  button.querySelector("span").textContent = "扫描响应中";
-  badge.textContent = "SCANNING";
+  button.querySelector("span").textContent = "ONNX 推理中";
+  $("#inspectStage").setAttribute("aria-busy", "true");
   $("#inspectStage").classList.add("is-scanning");
   openReport();
 
-  window.setTimeout(() => {
+  try {
+    setSceneState(`LOADING ${state.segmentModel.name}`, true);
+    const segmentationSession = await getModelSession(state.segmentModel);
+    const prepared = prepareSegmentationInput();
+    setSceneState("SEGMENTING 320×320", true);
+    const segmentationStart = performance.now();
+    const output = await segmentationSession.run({
+      [segmentationSession.inputNames[0]]: new ort.Tensor(
+        "float32",
+        prepared.normalized,
+        [1, 1, 320, 320],
+      ),
+    });
+    const probability = Float32Array.from(output[segmentationSession.outputNames[0]].data);
+    state.segProbability = probability;
+    state.segGray = prepared.gray;
+    state.segLatencyMs = performance.now() - segmentationStart;
+    await applyThresholdAndRecognize();
+  } catch (error) {
+    console.error(error);
+    state.analysis = null;
+    window.particlePipe?.setDefectsFromAnalysis(null);
+    updateInferenceUI();
+    setReportEmpty(
+      "error",
+      "真实推理失败",
+      error instanceof Error ? error.message : String(error),
+    );
+    setSceneState("ONNX ERROR");
+    showToast("ONNX 推理失败，请检查浏览器控制台。", "warning");
+  } finally {
     state.inferenceRunning = false;
     button.classList.remove("is-running");
     button.removeAttribute("aria-busy");
-    button.querySelector("span").textContent = "执行推理";
-    badge.textContent = state.segmentModel.badge || originalBadge;
+    button.querySelector("span").textContent =
+      state.imageBitmap ? "重新计算" : "执行分割与识别";
+    $("#inspectStage").removeAttribute("aria-busy");
     $("#inspectStage").classList.remove("is-scanning");
-    updateInferenceUI();
-    window.particlePipe?.setDefects(state.segmentModel);
-    showToast(
-      `推理完成：${state.recognitionModel.name} 置信度 ${$("#confidenceValue").textContent}%，阈值 ${state.threshold.toFixed(2)}。`,
+    syncRunButtonState();
+  }
+}
+
+function createSourceGrayCanvas(bitmap) {
+  const sourceCanvas = document.createElement("canvas");
+  sourceCanvas.width = bitmap.width;
+  sourceCanvas.height = bitmap.height;
+  const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
+  sourceContext.drawImage(bitmap, 0, 0);
+  const sourceData = sourceContext.getImageData(0, 0, bitmap.width, bitmap.height);
+  const pixels = sourceData.data;
+  for (let pixel = 0; pixel < pixels.length; pixel += 4) {
+    const luminance = Math.round(
+      (pixels[pixel] * 299 + pixels[pixel + 1] * 587 + pixels[pixel + 2] * 114) / 1000,
     );
-  }, prefersReducedMotion.matches ? 60 : 1450);
+    pixels[pixel] = luminance;
+    pixels[pixel + 1] = luminance;
+    pixels[pixel + 2] = luminance;
+  }
+  sourceContext.putImageData(sourceData, 0, 0);
+  return sourceCanvas;
+}
+
+function prepareSegmentationInput() {
+  const gray = resizeGrayWindow(
+    state.sourceGrayCanvas,
+    0,
+    0,
+    state.sourceGrayCanvas.width,
+    state.sourceGrayCanvas.height,
+    320,
+    320,
+  );
+  const normalized = new Float32Array(320 * 320);
+  for (let index = 0; index < gray.length; index += 1) {
+    normalized[index] = (gray[index] - 0.5) / 0.5;
+  }
+  return { gray, normalized };
+}
+
+async function recomputeFromProbability() {
+  if (state.inferenceRunning || !state.segProbability || !state.imageBitmap) return;
+  state.inferenceRunning = true;
+  syncRunButtonState();
+  $("#runInferenceBtn").classList.add("is-running");
+  $("#runInferenceBtn").querySelector("span").textContent = "更新阈值";
+  openReport();
+  try {
+    await applyThresholdAndRecognize();
+  } catch (error) {
+    console.error(error);
+    showToast("阈值重算失败，请重试。", "warning");
+  } finally {
+    state.inferenceRunning = false;
+    $("#runInferenceBtn").classList.remove("is-running");
+    $("#runInferenceBtn").querySelector("span").textContent = "重新计算";
+    syncRunButtonState();
+  }
+}
+
+async function applyThresholdAndRecognize() {
+  if (!state.segProbability || !state.imageBitmap) return;
+  const mask = new Uint8Array(state.segProbability.length);
+  let pixelCount = 0;
+  for (let index = 0; index < mask.length; index += 1) {
+    if (state.segProbability[index] >= state.threshold) {
+      mask[index] = 1;
+      pixelCount += 1;
+    }
+  }
+  state.mask = mask;
+
+  const morphology = analyzeMask(mask, 320, 320);
+  const baseAnalysis = {
+    width: 320,
+    height: 320,
+    probability: state.segProbability,
+    mask,
+    pixelCount,
+    defectFraction: (pixelCount / mask.length) * 100,
+    regionCount: morphology.regionCount,
+    bounds: morphology.bounds,
+    segmentationLatencyMs: state.segLatencyMs || 0,
+    recognitionLatencyMs: 0,
+    totalLatencyMs: state.segLatencyMs || 0,
+    probabilities: [],
+    topClass: null,
+    confidence: 0,
+    probabilityDataUrl: createProbabilityDataUrl(state.segProbability, 320, 320),
+    maskDataUrl: createMaskDataUrl(mask, 320, 320),
+    overlayDataUrl: createOverlayDataUrl(state.segGray, state.segProbability, 320, 320),
+    cropDataUrl: null,
+  };
+  state.analysis = baseAnalysis;
+  updateInferenceUI();
+
+  if (!pixelCount) {
+    window.particlePipe?.setDefectsFromAnalysis(baseAnalysis);
+    setSceneState("ONNX RESULT · NO DEFECT");
+    showToast(`阈值 ${state.threshold.toFixed(2)} 下未检测到缺陷，识别模型未运行。`);
+    return;
+  }
+
+  setSceneState(`LOADING ${state.recognitionModel.name}`, true);
+  const recognitionSession = await getModelSession(state.recognitionModel);
+  const recognitionInput = prepareRecognitionInput(mask, baseAnalysis.bounds);
+  setSceneState("CLASSIFYING DEFECT CROP", true);
+  const recognitionStart = performance.now();
+  const output = await recognitionSession.run({
+    [recognitionSession.inputNames[0]]: new ort.Tensor(
+      "float32",
+      recognitionInput.input,
+      [1, 2, 128, 128],
+    ),
+  });
+  const recognitionLatency = performance.now() - recognitionStart;
+  const values = Float32Array.from(output[recognitionSession.outputNames[0]].data);
+  const classes = state.recognitionModel.manifest.classes;
+  const probabilities = classes
+    .map((label, index) => ({ label, value: Number(values[index]) || 0 }))
+    .sort((left, right) => right.value - left.value);
+  const topClass = probabilities[0];
+  const totalLatencyMs =
+    (state.segLatencyMs || 0) + recognitionLatency;
+
+  state.analysis = {
+    ...baseAnalysis,
+    probabilities,
+    topClass,
+    confidence: topClass.value,
+    recognitionLatencyMs: recognitionLatency,
+    totalLatencyMs,
+    cropDataUrl: recognitionInput.cropDataUrl,
+  };
+  window.particlePipe?.setDefectsFromAnalysis(state.analysis);
+  setSceneState(`ONNX RESULT · ${topClass.label.toUpperCase()}`);
+  updateInferenceUI();
+  showToast(
+    `真实推理完成：${topClass.label} ${(topClass.value * 100).toFixed(2)}%，阈值 ${state.threshold.toFixed(2)}。`,
+  );
+}
+
+function analyzeMask(mask, width, height) {
+  const visited = new Uint8Array(mask.length);
+  const stack = [];
+  let regionCount = 0;
+  let largestRegion = 0;
+  let minX = width;
+  let minY = height;
+  let maxX = -1;
+  let maxY = -1;
+
+  for (let index = 0; index < mask.length; index += 1) {
+    if (!mask[index]) continue;
+    const x = index % width;
+    const y = Math.floor(index / width);
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+    if (visited[index]) continue;
+
+    visited[index] = 1;
+    stack.push(index);
+    let area = 0;
+    while (stack.length) {
+      const current = stack.pop();
+      area += 1;
+      const currentX = current % width;
+      const currentY = Math.floor(current / width);
+      const neighbors = [
+        currentX > 0 ? current - 1 : -1,
+        currentX + 1 < width ? current + 1 : -1,
+        currentY > 0 ? current - width : -1,
+        currentY + 1 < height ? current + width : -1,
+      ];
+      for (const neighbor of neighbors) {
+        if (neighbor >= 0 && mask[neighbor] && !visited[neighbor]) {
+          visited[neighbor] = 1;
+          stack.push(neighbor);
+        }
+      }
+    }
+    if (area >= 12) regionCount += 1;
+    largestRegion = Math.max(largestRegion, area);
+  }
+
+  return {
+    regionCount: regionCount || (maxX >= minX ? 1 : 0),
+    largestRegion,
+    bounds:
+      maxX >= minX
+        ? { x0: minX, y0: minY, x1: maxX + 1, y1: maxY + 1 }
+        : null,
+  };
+}
+
+function prepareRecognitionInput(mask, bounds) {
+  const sourceWidth = state.sourceGrayCanvas.width;
+  const sourceHeight = state.sourceGrayCanvas.height;
+  const scaleX = sourceWidth / 320;
+  const scaleY = sourceHeight / 320;
+  let x0 = bounds.x0 * scaleX;
+  let y0 = bounds.y0 * scaleY;
+  let x1 = bounds.x1 * scaleX;
+  let y1 = bounds.y1 * scaleY;
+  const paddingX = Math.max(1, Math.round((x1 - x0) * 0.2));
+  const paddingY = Math.max(1, Math.round((y1 - y0) * 0.2));
+  x0 = clamp(Math.floor(x0 - paddingX), 0, sourceWidth - 1);
+  y0 = clamp(Math.floor(y0 - paddingY), 0, sourceHeight - 1);
+  x1 = clamp(Math.ceil(x1 + paddingX), x0 + 1, sourceWidth);
+  y1 = clamp(Math.ceil(y1 + paddingY), y0 + 1, sourceHeight);
+
+  const cropWidth = x1 - x0;
+  const cropHeight = y1 - y0;
+  const cropGray = resizeGrayWindow(
+    state.sourceGrayCanvas,
+    x0,
+    y0,
+    cropWidth,
+    cropHeight,
+    128,
+    128,
+  );
+
+  const mask128 = new Float32Array(128 * 128);
+  const input = new Float32Array(128 * 128 * 2);
+  for (let y = 0; y < 128; y += 1) {
+    for (let x = 0; x < 128; x += 1) {
+      const index = y * 128 + x;
+      input[index] = (cropGray[index] - 0.5) / 0.5;
+
+      const sourceX = clamp(
+        Math.floor(x0 + ((x + 0.5) / 128) * cropWidth),
+        0,
+        sourceWidth - 1,
+      );
+      const sourceY = clamp(
+        Math.floor(y0 + ((y + 0.5) / 128) * cropHeight),
+        0,
+        sourceHeight - 1,
+      );
+      const maskX = clamp(Math.floor((sourceX / sourceWidth) * 320), 0, 319);
+      const maskY = clamp(Math.floor((sourceY / sourceHeight) * 320), 0, 319);
+      mask128[index] = mask[maskY * 320 + maskX] ? 1 : 0;
+      input[128 * 128 + index] = mask128[index];
+    }
+  }
+
+  const previewCanvas = document.createElement("canvas");
+  previewCanvas.width = 128;
+  previewCanvas.height = 128;
+  const previewContext = previewCanvas.getContext("2d");
+  const previewImageData = previewContext.createImageData(128, 128);
+  for (let index = 0; index < cropGray.length; index += 1) {
+    const pixel = index * 4;
+    const base = Math.round(cropGray[index] * 255);
+    if (mask128[index]) {
+      previewImageData.data[pixel] = Math.min(255, base + 92);
+      previewImageData.data[pixel + 1] = Math.round(base * 0.72);
+      previewImageData.data[pixel + 2] = Math.max(0, base - 35);
+    } else {
+      previewImageData.data[pixel] = base;
+      previewImageData.data[pixel + 1] = base;
+      previewImageData.data[pixel + 2] = base;
+    }
+    previewImageData.data[pixel + 3] = 255;
+  }
+  previewContext.putImageData(previewImageData, 0, 0);
+
+  return {
+    input,
+    cropDataUrl: previewCanvas.toDataURL("image/png"),
+  };
+}
+
+function resizeGrayWindow(
+  sourceCanvas,
+  sourceX,
+  sourceY,
+  sourceWidth,
+  sourceHeight,
+  targetWidth,
+  targetHeight,
+) {
+  const sourceContext = sourceCanvas.getContext("2d", { willReadFrequently: true });
+  const sourcePixels = sourceContext.getImageData(
+    0,
+    0,
+    sourceCanvas.width,
+    sourceCanvas.height,
+  ).data;
+  const output = new Float32Array(targetWidth * targetHeight);
+  const scaleX = sourceWidth / targetWidth;
+  const scaleY = sourceHeight / targetHeight;
+
+  for (let y = 0; y < targetHeight; y += 1) {
+    const sourceCenterY = (y + 0.5) * scaleY - 0.5;
+    const y0 = Math.floor(sourceCenterY);
+    const y1 = y0 + 1;
+    const weightY = sourceCenterY - y0;
+    const clampedY0 = clamp(sourceY + y0, 0, sourceCanvas.height - 1);
+    const clampedY1 = clamp(sourceY + y1, 0, sourceCanvas.height - 1);
+
+    for (let x = 0; x < targetWidth; x += 1) {
+      const sourceCenterX = (x + 0.5) * scaleX - 0.5;
+      const x0 = Math.floor(sourceCenterX);
+      const x1 = x0 + 1;
+      const weightX = sourceCenterX - x0;
+      const clampedX0 = clamp(sourceX + x0, 0, sourceCanvas.width - 1);
+      const clampedX1 = clamp(sourceX + x1, 0, sourceCanvas.width - 1);
+      const topLeft = sourcePixels[(clampedY0 * sourceCanvas.width + clampedX0) * 4];
+      const topRight = sourcePixels[(clampedY0 * sourceCanvas.width + clampedX1) * 4];
+      const bottomLeft = sourcePixels[(clampedY1 * sourceCanvas.width + clampedX0) * 4];
+      const bottomRight = sourcePixels[(clampedY1 * sourceCanvas.width + clampedX1) * 4];
+      const top = topLeft * (1 - weightX) + topRight * weightX;
+      const bottom = bottomLeft * (1 - weightX) + bottomRight * weightX;
+      output[y * targetWidth + x] = (top * (1 - weightY) + bottom * weightY) / 255;
+    }
+  }
+  return output;
+}
+
+function createProbabilityDataUrl(probability, width, height) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  const imageData = context.createImageData(width, height);
+  for (let index = 0; index < probability.length; index += 1) {
+    const value = Math.round(clamp(probability[index], 0, 1) * 255);
+    const pixel = index * 4;
+    imageData.data[pixel] = value;
+    imageData.data[pixel + 1] = value;
+    imageData.data[pixel + 2] = value;
+    imageData.data[pixel + 3] = 255;
+  }
+  context.putImageData(imageData, 0, 0);
+  return canvas.toDataURL("image/png");
+}
+
+function createMaskDataUrl(mask, width, height) {
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  const imageData = context.createImageData(width, height);
+  for (let index = 0; index < mask.length; index += 1) {
+    const value = mask[index] ? 255 : 0;
+    const pixel = index * 4;
+    imageData.data[pixel] = value;
+    imageData.data[pixel + 1] = value;
+    imageData.data[pixel + 2] = value;
+    imageData.data[pixel + 3] = 255;
+  }
+  context.putImageData(imageData, 0, 0);
+  return canvas.toDataURL("image/png");
+}
+
+function createOverlayDataUrl(gray, probability, width, height) {
+  let minimum = Infinity;
+  let maximum = -Infinity;
+  for (const value of probability) {
+    minimum = Math.min(minimum, value);
+    maximum = Math.max(maximum, value);
+  }
+  const range = maximum - minimum;
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  const imageData = context.createImageData(width, height);
+  for (let index = 0; index < gray.length; index += 1) {
+    const normalized = range > 1e-8 ? (probability[index] - minimum) / range : 0;
+    const red = clamp(2 * normalized, 0, 1);
+    const blue = clamp(2 * (1 - normalized), 0, 1);
+    const green = clamp(1.5 - Math.abs(normalized - 0.5) * 3, 0, 1);
+    const base = clamp(gray[index], 0, 1);
+    const pixel = index * 4;
+    imageData.data[pixel] = Math.round((base * 0.55 + red * 0.45) * 255);
+    imageData.data[pixel + 1] = Math.round((base * 0.55 + green * 0.45) * 255);
+    imageData.data[pixel + 2] = Math.round((base * 0.55 + blue * 0.45) * 255);
+    imageData.data[pixel + 3] = 255;
+  }
+  context.putImageData(imageData, 0, 0);
+  return canvas.toDataURL("image/png");
+}
+
+function setSceneState(text, processing = false) {
+  const sceneState = $("#runtimeSceneState");
+  sceneState.classList.toggle("is-processing", processing);
+  sceneState.innerHTML = `<span></span>${escapeHtml(text)}`;
 }
 
 function openReport() {
@@ -1483,8 +2160,12 @@ function openArchiveRecord(recordId) {
         button.setAttribute("aria-pressed", String(selected));
       });
     }
+    state.segProbability = null;
+    state.segGray = null;
+    state.mask = null;
+    state.analysis = null;
+    window.particlePipe?.setDefectsFromAnalysis(null);
     updateInferenceUI();
-    window.particlePipe?.setDefects(state.segmentModel);
   }
   showToast(`已载入 ${record.name}：${record.note}`);
 }
