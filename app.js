@@ -9,7 +9,7 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 
 ort.env.wasm.wasmPaths = new URL("./vendor/onnxruntime/", window.location.href).href;
 ort.env.wasm.numThreads = 1;
-ort.env.wasm.proxy = false;
+ort.env.wasm.proxy = true;
 ort.env.logLevel = "error";
 
 const segmentationModels = {
@@ -159,12 +159,19 @@ const state = {
   imageBitmap: null,
   sourceGrayCanvas: null,
   imageObjectUrl: null,
+  imageRevision: 0,
+  probabilityPreviewUrl: null,
+  overlayPreviewUrl: null,
   segProbability: null,
   segGray: null,
   segLatencyMs: 0,
   mask: null,
   analysis: null,
   thresholdTimer: null,
+  thresholdRunning: false,
+  thresholdQueued: false,
+  thresholdRequestId: 0,
+  analysisCache: new Map(),
   inferenceStage: "idle",
   inferenceRunning: false,
   trainingRunning: true,
@@ -561,6 +568,30 @@ function init() {
 
   window.particlePipe = new ParticlePipe($("#particleStage"));
   window.particlePipe.setVisible(state.view === "inspect");
+  if (new URLSearchParams(window.location.search).has("debug")) {
+    window.__workbenchDebug = {
+      getInferenceState: () => ({
+        threshold: state.threshold,
+        thresholdQueued: state.thresholdQueued,
+        thresholdRunning: state.thresholdRunning,
+        inferenceRunning: state.inferenceRunning,
+        appliedThreshold: state.analysis?.threshold ?? null,
+        pixelCount: state.analysis?.pixelCount ?? null,
+        segmentationLatencyMs: state.analysis?.segmentationLatencyMs ?? null,
+        recognitionLatencyMs: state.analysis?.recognitionLatencyMs ?? null,
+        totalLatencyMs: state.analysis?.totalLatencyMs ?? null,
+        cacheKeys: Array.from(state.analysisCache.keys()),
+      }),
+      countThreshold: (threshold) => {
+        if (!state.segProbability) return null;
+        let count = 0;
+        for (const value of state.segProbability) {
+          if (value >= threshold) count += 1;
+        }
+        return count;
+      },
+    };
+  }
   loadModelManifest();
   startTrainingClock();
 }
@@ -696,7 +727,7 @@ function setupTabGroup({ tabSelector, panelSelector, dataAttribute, onChange }) 
 function setupInferenceControls() {
   $$(".weight-option[data-seg]").forEach((button) => {
     button.addEventListener("click", async () => {
-      if (state.inferenceRunning || !state.manifestReady) return;
+      if (isInferenceBusy() || !state.manifestReady) return;
       state.segmentModel = segmentationModels[button.dataset.seg];
       $$(".weight-option[data-seg]").forEach((item) => {
         const selected = item === button;
@@ -717,7 +748,7 @@ function setupInferenceControls() {
 
   $$(".weight-option[data-rec]").forEach((button) => {
     button.addEventListener("click", async () => {
-      if (state.inferenceRunning || !state.manifestReady) return;
+      if (isInferenceBusy() || !state.manifestReady) return;
       state.recognitionModel = recognitionModels[button.dataset.rec];
       $$(".weight-option[data-rec]").forEach((item) => {
         const selected = item === button;
@@ -727,7 +758,7 @@ function setupInferenceControls() {
       updateInferenceUI();
       showToast(`识别权重切换为 ${state.recognitionModel.name}。`);
       if (state.segProbability && state.imageBitmap) {
-        await recomputeFromProbability();
+        scheduleThresholdRecompute(0, true);
       }
     });
   });
@@ -737,10 +768,11 @@ function setupInferenceControls() {
     $("#thresholdValue").textContent = state.threshold.toFixed(2);
     $("#imageThreshold").textContent = state.threshold.toFixed(2);
     updateInferenceUI();
-    window.clearTimeout(state.thresholdTimer);
-    if (state.segProbability && !state.inferenceRunning) {
-      state.thresholdTimer = window.setTimeout(() => recomputeFromProbability(), 180);
-    }
+    scheduleThresholdRecompute(64);
+  });
+
+  $("#thresholdRange").addEventListener("change", () => {
+    scheduleThresholdRecompute(0, true);
   });
 
   $("#runInferenceBtn").addEventListener("click", runInference);
@@ -888,7 +920,9 @@ function updateInferenceUI() {
   $("#floatDefect").textContent = analysis.defectFraction.toFixed(2);
   $("#reportDice").textContent = analysis.pixelCount.toLocaleString("zh-CN");
   $("#reportIou").textContent = String(analysis.regionCount);
-  $("#reportBoundary").textContent = `${analysis.totalLatencyMs.toFixed(0)} ms`;
+  $("#reportBoundary").textContent =
+    `${analysis.segmentationLatencyMs.toFixed(0)} / ` +
+    `${analysis.recognitionLatencyMs.toFixed(0)} ms`;
   $("#reportMetricGrid").hidden = false;
   updateReportImages(analysis);
 
@@ -1023,6 +1057,10 @@ async function handleInferenceImage(file) {
     state.imageBitmap = bitmap;
     state.imageFile = file;
     state.sourceGrayCanvas = createSourceGrayCanvas(bitmap);
+    state.imageRevision += 1;
+    state.analysisCache.clear();
+    state.probabilityPreviewUrl = null;
+    state.overlayPreviewUrl = null;
     state.segProbability = null;
     state.mask = null;
     state.analysis = null;
@@ -1041,6 +1079,11 @@ async function handleInferenceImage(file) {
     );
     syncRunButtonState();
     updateInferenceUI();
+    if (state.manifestReady) {
+      getModelSession(state.recognitionModel).catch((error) => {
+        console.warn("Recognition model prefetch failed:", error);
+      });
+    }
     await runInference();
   } catch (error) {
     console.error(error);
@@ -1052,7 +1095,11 @@ function syncRunButtonState() {
   const runButton = $("#runInferenceBtn");
   if (!runButton) return;
   runButton.disabled =
-    !state.manifestReady || !state.imageBitmap || state.inferenceRunning;
+    !state.manifestReady || !state.imageBitmap || isInferenceBusy();
+}
+
+function isInferenceBusy() {
+  return state.inferenceRunning || state.thresholdRunning;
 }
 
 async function getModelSession(model) {
@@ -1104,6 +1151,13 @@ async function runInference() {
     const probability = Float32Array.from(output[segmentationSession.outputNames[0]].data);
     state.segProbability = probability;
     state.segGray = prepared.gray;
+    state.probabilityPreviewUrl = createProbabilityDataUrl(probability, 320, 320);
+    state.overlayPreviewUrl = createOverlayDataUrl(
+      prepared.gray,
+      probability,
+      320,
+      320,
+    );
     state.segLatencyMs = performance.now() - segmentationStart;
     await applyThresholdAndRecognize();
   } catch (error) {
@@ -1127,6 +1181,7 @@ async function runInference() {
     $("#inspectStage").removeAttribute("aria-busy");
     $("#inspectStage").classList.remove("is-scanning");
     syncRunButtonState();
+    window.setTimeout(drainThresholdQueue, 0);
   }
 }
 
@@ -1167,32 +1222,88 @@ function prepareSegmentationInput() {
   return { gray, normalized };
 }
 
-async function recomputeFromProbability() {
-  if (state.inferenceRunning || !state.segProbability || !state.imageBitmap) return;
-  state.inferenceRunning = true;
+function scheduleThresholdRecompute(delayMs = 80, immediate = false) {
+  if (!state.segProbability || !state.imageBitmap) return;
+  state.thresholdQueued = true;
+  state.thresholdRequestId += 1;
+  window.clearTimeout(state.thresholdTimer);
+  state.thresholdTimer = window.setTimeout(
+    drainThresholdQueue,
+    immediate ? 0 : delayMs,
+  );
+}
+
+async function drainThresholdQueue() {
+  if (!state.thresholdQueued) return;
+  if (state.inferenceRunning || state.thresholdRunning) return;
+  if (!state.segProbability || !state.imageBitmap) {
+    state.thresholdQueued = false;
+    return;
+  }
+
+  state.thresholdQueued = false;
+  state.thresholdRunning = true;
+  const requestedThreshold = state.threshold;
   syncRunButtonState();
-  $("#runInferenceBtn").classList.add("is-running");
-  $("#runInferenceBtn").querySelector("span").textContent = "更新阈值";
-  openReport();
+  const runButton = $("#runInferenceBtn");
+  const thresholdSlider = $("#thresholdRange");
+  runButton.classList.add("is-running");
+  runButton.setAttribute("aria-busy", "true");
+  runButton.querySelector("span").textContent = "更新阈值";
+  thresholdSlider.setAttribute("aria-busy", "true");
+  $("#thresholdHelp").textContent = `正在应用阈值 ${requestedThreshold.toFixed(2)}…`;
+  setSceneState("UPDATING THRESHOLD", true);
+
   try {
     await applyThresholdAndRecognize();
   } catch (error) {
     console.error(error);
     showToast("阈值重算失败，请重试。", "warning");
+    setSceneState("THRESHOLD ERROR");
   } finally {
-    state.inferenceRunning = false;
-    $("#runInferenceBtn").classList.remove("is-running");
-    $("#runInferenceBtn").querySelector("span").textContent = "重新计算";
+    state.thresholdRunning = false;
+    runButton.classList.remove("is-running");
+    runButton.removeAttribute("aria-busy");
+    runButton.querySelector("span").textContent = "重新计算";
+    thresholdSlider.removeAttribute("aria-busy");
+    $("#thresholdHelp").textContent = "阈值降低会扩大缺陷响应区域。";
     syncRunButtonState();
+    if (
+      state.thresholdQueued ||
+      Math.abs(state.threshold - requestedThreshold) > 0.0001
+    ) {
+      state.thresholdQueued = true;
+      window.setTimeout(drainThresholdQueue, 0);
+    }
   }
 }
 
 async function applyThresholdAndRecognize() {
   if (!state.segProbability || !state.imageBitmap) return;
+  const threshold = state.threshold;
+  const cacheKey = [
+    state.imageRevision,
+    state.segmentModel.id,
+    state.recognitionModel.id,
+    threshold.toFixed(2),
+  ].join(":");
+  const cached = state.analysisCache.get(cacheKey);
+  if (cached) {
+    state.analysis = cached;
+    window.particlePipe?.setDefectsFromAnalysis(cached);
+    setSceneState(
+      cached.pixelCount
+        ? `ONNX RESULT · ${cached.topClass.label.toUpperCase()}`
+        : "ONNX RESULT · NO DEFECT",
+    );
+    updateInferenceUI();
+    return;
+  }
+
   const mask = new Uint8Array(state.segProbability.length);
   let pixelCount = 0;
   for (let index = 0; index < mask.length; index += 1) {
-    if (state.segProbability[index] >= state.threshold) {
+    if (state.segProbability[index] >= threshold) {
       mask[index] = 1;
       pixelCount += 1;
     }
@@ -1203,6 +1314,7 @@ async function applyThresholdAndRecognize() {
   const baseAnalysis = {
     width: 320,
     height: 320,
+    threshold,
     probability: state.segProbability,
     mask,
     pixelCount,
@@ -1215,9 +1327,9 @@ async function applyThresholdAndRecognize() {
     probabilities: [],
     topClass: null,
     confidence: 0,
-    probabilityDataUrl: createProbabilityDataUrl(state.segProbability, 320, 320),
+    probabilityDataUrl: state.probabilityPreviewUrl,
     maskDataUrl: createMaskDataUrl(mask, 320, 320),
-    overlayDataUrl: createOverlayDataUrl(state.segGray, state.segProbability, 320, 320),
+    overlayDataUrl: state.overlayPreviewUrl,
     cropDataUrl: null,
   };
   state.analysis = baseAnalysis;
@@ -1226,12 +1338,16 @@ async function applyThresholdAndRecognize() {
   if (!pixelCount) {
     window.particlePipe?.setDefectsFromAnalysis(baseAnalysis);
     setSceneState("ONNX RESULT · NO DEFECT");
-    showToast(`阈值 ${state.threshold.toFixed(2)} 下未检测到缺陷，识别模型未运行。`);
+    cacheAnalysis(cacheKey, baseAnalysis);
+    if (!state.thresholdRunning) {
+      showToast(`阈值 ${threshold.toFixed(2)} 下未检测到缺陷，识别模型未运行。`);
+    }
     return;
   }
 
+  const recognitionSessionPromise = getModelSession(state.recognitionModel);
   setSceneState(`LOADING ${state.recognitionModel.name}`, true);
-  const recognitionSession = await getModelSession(state.recognitionModel);
+  const recognitionSession = await recognitionSessionPromise;
   const recognitionInput = prepareRecognitionInput(mask, baseAnalysis.bounds);
   setSceneState("CLASSIFYING DEFECT CROP", true);
   const recognitionStart = performance.now();
@@ -1262,16 +1378,28 @@ async function applyThresholdAndRecognize() {
     cropDataUrl: recognitionInput.cropDataUrl,
   };
   window.particlePipe?.setDefectsFromAnalysis(state.analysis);
+  const completedAnalysis = state.analysis;
+  cacheAnalysis(cacheKey, completedAnalysis);
   setSceneState(`ONNX RESULT · ${topClass.label.toUpperCase()}`);
   updateInferenceUI();
-  showToast(
-    `真实推理完成：${topClass.label} ${(topClass.value * 100).toFixed(2)}%，阈值 ${state.threshold.toFixed(2)}。`,
-  );
+  if (!state.thresholdRunning) {
+    showToast(
+      `真实推理完成：${topClass.label} ${(topClass.value * 100).toFixed(2)}%，阈值 ${threshold.toFixed(2)}。`,
+    );
+  }
+}
+
+function cacheAnalysis(key, analysis) {
+  state.analysisCache.delete(key);
+  state.analysisCache.set(key, analysis);
+  while (state.analysisCache.size > 16) {
+    state.analysisCache.delete(state.analysisCache.keys().next().value);
+  }
 }
 
 function analyzeMask(mask, width, height) {
   const visited = new Uint8Array(mask.length);
-  const stack = [];
+  const pending = new Int32Array(mask.length);
   let regionCount = 0;
   let largestRegion = 0;
   let minX = width;
@@ -1290,23 +1418,40 @@ function analyzeMask(mask, width, height) {
     if (visited[index]) continue;
 
     visited[index] = 1;
-    stack.push(index);
+    pending[0] = index;
+    let pendingCount = 1;
     let area = 0;
-    while (stack.length) {
-      const current = stack.pop();
+    while (pendingCount) {
+      const current = pending[--pendingCount];
       area += 1;
       const currentX = current % width;
       const currentY = Math.floor(current / width);
-      const neighbors = [
-        currentX > 0 ? current - 1 : -1,
-        currentX + 1 < width ? current + 1 : -1,
-        currentY > 0 ? current - width : -1,
-        currentY + 1 < height ? current + width : -1,
-      ];
-      for (const neighbor of neighbors) {
-        if (neighbor >= 0 && mask[neighbor] && !visited[neighbor]) {
+      if (currentX > 0) {
+        const neighbor = current - 1;
+        if (mask[neighbor] && !visited[neighbor]) {
           visited[neighbor] = 1;
-          stack.push(neighbor);
+          pending[pendingCount++] = neighbor;
+        }
+      }
+      if (currentX + 1 < width) {
+        const neighbor = current + 1;
+        if (mask[neighbor] && !visited[neighbor]) {
+          visited[neighbor] = 1;
+          pending[pendingCount++] = neighbor;
+        }
+      }
+      if (currentY > 0) {
+        const neighbor = current - width;
+        if (mask[neighbor] && !visited[neighbor]) {
+          visited[neighbor] = 1;
+          pending[pendingCount++] = neighbor;
+        }
+      }
+      if (currentY + 1 < height) {
+        const neighbor = current + width;
+        if (mask[neighbor] && !visited[neighbor]) {
+          visited[neighbor] = 1;
+          pending[pendingCount++] = neighbor;
         }
       }
     }
