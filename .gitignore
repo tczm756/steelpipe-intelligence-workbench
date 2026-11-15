@@ -1,0 +1,4 @@
+.tools/
+screenshots/
+ui-smoke-test.cjs
+*.log
