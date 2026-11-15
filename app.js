@@ -180,6 +180,7 @@ const state = {
   thresholdQueued: false,
   thresholdRequestId: 0,
   analysisCache: new Map(),
+  modelBytePromises: new Map(),
   inferenceStage: "idle",
   inferenceRunning: false,
   trainingRunning: true,
@@ -846,6 +847,7 @@ async function loadModelManifest() {
       `已加载 ${manifest.segmentation.length + manifest.recognition.length} 个真实 PyTorch 导出权重；浏览器仅执行所选检查点。`;
     setSceneState("ONNX READY");
     syncRunButtonState();
+    preloadInferenceAssets();
   } catch (error) {
     state.manifestError = error;
     console.error(error);
@@ -1157,28 +1159,54 @@ async function prepareCompressedRuntime() {
   }
 }
 
-async function fetchModelBytes(file) {
-  const compressedUrl = new URL(`${file}.gz`, window.location.href).href;
-  if (typeof DecompressionStream !== "undefined") {
-    try {
-      const response = await fetch(compressedUrl, { cache: "force-cache" });
-      if (response.ok && response.body) {
-        const decompressed = response.body.pipeThrough(
-          new DecompressionStream("gzip"),
-        );
-        return await new Response(decompressed).arrayBuffer();
-      }
-    } catch (error) {
-      console.warn("Compressed model unavailable, using ONNX fallback:", error);
+function preloadInferenceAssets() {
+  compressedRuntimeReady.then((ready) => {
+    if (ready) {
+      navigator.serviceWorker.controller?.postMessage({
+        type: "precache-wasm",
+      });
+    }
+  });
+  for (const model of [state.segmentModel, state.recognitionModel]) {
+    if (model.manifest?.file) {
+      fetchModelBytes(model.manifest.file).catch((error) => {
+        console.warn(`Model prefetch failed for ${model.id}:`, error);
+      });
     }
   }
-  const response = await fetch(new URL(file, window.location.href).href, {
-    cache: "force-cache",
-  });
-  if (!response.ok) {
-    throw new Error(`权重下载失败：HTTP ${response.status}`);
-  }
-  return response.arrayBuffer();
+}
+
+function fetchModelBytes(file) {
+  const cached = state.modelBytePromises.get(file);
+  if (cached) return cached;
+
+  const promise = (async () => {
+    const compressedUrl = new URL(`${file}.gz`, window.location.href).href;
+    if (typeof DecompressionStream !== "undefined") {
+      try {
+        const response = await fetch(compressedUrl, { cache: "force-cache" });
+        if (response.ok && response.body) {
+          const decompressed = response.body.pipeThrough(
+            new DecompressionStream("gzip"),
+          );
+          return await new Response(decompressed).arrayBuffer();
+        }
+      } catch (error) {
+        console.warn("Compressed model unavailable, using ONNX fallback:", error);
+      }
+    }
+    const response = await fetch(new URL(file, window.location.href).href, {
+      cache: "force-cache",
+    });
+    if (!response.ok) {
+      throw new Error(`权重下载失败：HTTP ${response.status}`);
+    }
+    return response.arrayBuffer();
+  })();
+
+  state.modelBytePromises.set(file, promise);
+  promise.catch(() => state.modelBytePromises.delete(file));
+  return promise;
 }
 
 async function runInference() {

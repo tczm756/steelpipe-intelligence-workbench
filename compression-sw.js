@@ -1,5 +1,6 @@
 const CACHE_NAME = "steelpipe-runtime-v1";
 const WASM_SUFFIX = "/vendor/onnxruntime/ort-wasm-simd-threaded.wasm";
+let wasmCachePromise = null;
 
 self.addEventListener("install", (event) => {
   event.waitUntil(self.skipWaiting());
@@ -7,6 +8,42 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
+});
+
+function cacheWasm() {
+  if (wasmCachePromise) return wasmCachePromise;
+  wasmCachePromise = (async () => {
+    const wasmUrl = new URL(
+      "./vendor/onnxruntime/ort-wasm-simd-threaded.wasm.gz",
+      self.registration.scope,
+    );
+    const cache = await caches.open(CACHE_NAME);
+    if (await cache.match(wasmUrl.href)) return;
+    const response = await fetch(wasmUrl.href, { cache: "force-cache" });
+    if (response.ok) {
+      await cache.put(wasmUrl.href, response);
+    }
+  })().catch((error) => {
+    wasmCachePromise = null;
+    throw error;
+  });
+  return wasmCachePromise;
+}
+
+async function precacheWasm() {
+  const wasmUrl = new URL(
+    "./vendor/onnxruntime/ort-wasm-simd-threaded.wasm.gz",
+    self.registration.scope,
+  );
+  const cache = await caches.open(CACHE_NAME);
+  if (await cache.match(wasmUrl.href)) return;
+  await cacheWasm();
+}
+
+self.addEventListener("message", (event) => {
+  if (event.data?.type === "precache-wasm") {
+    event.waitUntil(precacheWasm());
+  }
 });
 
 async function serveCompressedWasm(request) {
@@ -19,11 +56,11 @@ async function serveCompressedWasm(request) {
   const cache = await caches.open(CACHE_NAME);
   let compressed = await cache.match(compressedUrl.href);
   if (!compressed) {
-    compressed = await fetch(compressedUrl.href, { cache: "force-cache" });
-    if (!compressed.ok || !compressed.body) {
+    await cacheWasm();
+    compressed = await cache.match(compressedUrl.href);
+    if (!compressed || !compressed.body) {
       return fetch(request);
     }
-    await cache.put(compressedUrl.href, compressed.clone());
   }
 
   const decompressed = compressed.body.pipeThrough(
