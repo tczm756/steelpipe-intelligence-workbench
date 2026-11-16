@@ -1,6 +1,6 @@
-# SteelPipe Intelligence Workbench
+# YOPO (You only peek once)
 
-线激光钢管缺陷检测可视化工作台。推理页使用仓库中的真实 PyTorch 检查点导出为 ONNX，并通过 ONNX Runtime Web 在浏览器本地执行。
+YOPO 是线激光钢管缺陷检测可视化工作台。推理页使用仓库中的真实 PyTorch 检查点导出为 ONNX，并通过 ONNX Runtime Web 在浏览器本地执行。
 
 ## 启动
 

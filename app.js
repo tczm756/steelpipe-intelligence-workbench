@@ -525,13 +525,20 @@ class ParticlePipe {
     this.pointer.lerp(this.pointerTarget, 0.035);
 
     if (!prefersReducedMotion.matches) {
-      this.group.rotation.y = 0.15 + elapsed * 0.075 + this.pointer.x * 0.12;
-      this.group.rotation.x = 0.06 - this.pointer.y * 0.055;
-      this.group.position.y = Math.sin(elapsed * 0.55) * 0.035;
-      this.ambientPoints.rotation.y = -elapsed * 0.012;
+      this.group.rotation.y = 0.15 + elapsed * 0.088 + this.pointer.x * 0.16;
+      this.group.rotation.x = 0.06 - this.pointer.y * 0.065;
+      this.group.rotation.z = -0.16 + Math.sin(elapsed * 0.26) * 0.032;
+      this.group.position.x = Math.sin(elapsed * 0.34) * 0.055;
+      this.group.position.y = Math.sin(elapsed * 0.55) * 0.045;
+      this.ambientPoints.rotation.y = -elapsed * 0.016;
+      this.ambientPoints.rotation.z = Math.sin(elapsed * 0.09) * 0.025;
       this.scanRing.position.y = -3.55 + ((elapsed * 0.42) % 1) * 7.1;
       this.scanRing.material.opacity =
         (this.defectGroup ? 0.48 : 0.22) + Math.sin(elapsed * 2.1) * 0.12;
+      if (this.surfacePoints) {
+        this.surfacePoints.material.opacity =
+          0.78 + Math.sin(elapsed * 0.8) * 0.055;
+      }
       if (this.defectGroup) {
         this.defectGroup.material.opacity = 0.82 + Math.sin(elapsed * 2.7) * 0.1;
       }
@@ -550,7 +557,256 @@ class ParticlePipe {
   }
 }
 
+class LaunchParticleField {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.context = canvas.getContext("2d", { alpha: true });
+    this.noMotion = prefersReducedMotion.matches;
+    this.width = 0;
+    this.height = 0;
+    this.dpr = 1;
+    this.targets = [];
+    this.particles = [];
+    this.dust = [];
+    this.running = true;
+    this.startTime = performance.now();
+    this.animationFrame = null;
+    this.resize = this.resize.bind(this);
+    this.animate = this.animate.bind(this);
+    window.addEventListener("resize", this.resize, { passive: true });
+    this.resize();
+    this.animationFrame = requestAnimationFrame(this.animate);
+  }
+
+  resize() {
+    this.width = Math.max(320, window.innerWidth);
+    this.height = Math.max(320, window.innerHeight);
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.canvas.width = Math.round(this.width * this.dpr);
+    this.canvas.height = Math.round(this.height * this.dpr);
+    this.context.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    this.createTargets();
+    this.createParticles();
+    this.createDust();
+    if (this.noMotion) this.draw(performance.now(), 1);
+  }
+
+  createTargets() {
+    const offscreen = document.createElement("canvas");
+    offscreen.width = this.width;
+    offscreen.height = this.height;
+    const context = offscreen.getContext("2d", { willReadFrequently: true });
+    const fontSize = Math.min(
+      190,
+      Math.max(58, this.width * 0.18),
+      this.height * 0.28,
+    );
+    context.clearRect(0, 0, this.width, this.height);
+    context.fillStyle = "#ffffff";
+    context.font = `500 ${fontSize}px "Bahnschrift", "DIN Alternate", sans-serif`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText("YOPO", this.width / 2, this.height * 0.48);
+    const pixels = context.getImageData(0, 0, this.width, this.height).data;
+    const step = this.width < 680 ? 3 : 4;
+    const points = [];
+    for (let y = 0; y < this.height; y += step) {
+      for (let x = 0; x < this.width; x += step) {
+        if (pixels[(y * this.width + x) * 4 + 3] > 100) {
+          points.push({
+            x: x + (Math.random() - 0.5) * 1.6,
+            y: y + (Math.random() - 0.5) * 1.6,
+          });
+        }
+      }
+    }
+    const stride = Math.max(1, Math.ceil(points.length / 2200));
+    this.targets = points.filter((_, index) => index % stride === 0);
+  }
+
+  createParticles() {
+    const edge = Math.max(this.width, this.height);
+    this.particles = this.targets.map((target) => {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = edge * (0.18 + Math.random() * 0.24);
+      return {
+        originX: this.width / 2 + Math.cos(angle) * radius,
+        originY: this.height / 2 + Math.sin(angle) * radius,
+        targetX: target.x,
+        targetY: target.y,
+        delay: Math.random() * 0.18,
+        phase: Math.random() * Math.PI * 2,
+        size: 0.7 + Math.random() * 1.35,
+        orange: Math.random() < 0.055,
+      };
+    });
+  }
+
+  createDust() {
+    this.dust = Array.from({ length: 90 }, () => ({
+      x: Math.random() * this.width,
+      y: Math.random() * this.height,
+      length: 8 + Math.random() * 28,
+      speed: 0.12 + Math.random() * 0.36,
+      alpha: 0.08 + Math.random() * 0.24,
+    }));
+  }
+
+  animate(now) {
+    if (!this.running) return;
+    const elapsed = now - this.startTime;
+    const progress = this.noMotion ? 1 : clamp(elapsed / 1500, 0, 1);
+    this.draw(now, progress);
+    if (this.noMotion) {
+      this.running = false;
+      return;
+    }
+    this.animationFrame = requestAnimationFrame(this.animate);
+  }
+
+  draw(now, progress) {
+    const context = this.context;
+    const elapsed = (now - this.startTime) / 1000;
+    context.clearRect(0, 0, this.width, this.height);
+
+    for (const particle of this.dust) {
+      particle.x += particle.speed;
+      particle.y += particle.speed * 0.12;
+      if (particle.x > this.width + 40) particle.x = -40;
+      if (particle.y > this.height + 20) particle.y = -20;
+      context.globalAlpha = particle.alpha;
+      context.strokeStyle = "rgba(89, 244, 228, 0.7)";
+      context.lineWidth = 0.6;
+      context.beginPath();
+      context.moveTo(particle.x, particle.y);
+      context.lineTo(particle.x - particle.length, particle.y - 1);
+      context.stroke();
+    }
+
+    const cyan = [];
+    const amber = [];
+    for (const particle of this.particles) {
+      const localProgress = this.noMotion
+        ? 1
+        : clamp((progress - particle.delay) / (1 - particle.delay), 0, 1);
+      const eased = 1 - Math.pow(1 - localProgress, 4);
+      const drift = (1 - eased) * 10;
+      const x =
+        particle.originX +
+        (particle.targetX - particle.originX) * eased +
+        Math.sin(elapsed * 1.8 + particle.phase) * drift;
+      const y =
+        particle.originY +
+        (particle.targetY - particle.originY) * eased +
+        Math.cos(elapsed * 1.45 + particle.phase) * drift;
+      const point = {
+        x,
+        y,
+        size: particle.size * (1 + Math.sin(elapsed * 2.2 + particle.phase) * 0.14),
+      };
+      (particle.orange ? amber : cyan).push(point);
+    }
+
+    context.globalAlpha = 0.76;
+    context.fillStyle = "rgba(112, 255, 243, 0.88)";
+    for (const point of cyan) {
+      context.fillRect(point.x, point.y, point.size, point.size);
+    }
+    context.globalAlpha = 0.86;
+    context.fillStyle = "rgba(255, 138, 61, 0.92)";
+    for (const point of amber) {
+      context.fillRect(point.x, point.y, point.size + 0.3, point.size + 0.3);
+    }
+    context.globalAlpha = 1;
+  }
+
+  destroy() {
+    this.running = false;
+    cancelAnimationFrame(this.animationFrame);
+    window.removeEventListener("resize", this.resize);
+  }
+}
+
+function initLaunchScreen() {
+  const launch = $("#launchScreen");
+  if (!launch) return;
+
+  const params = new URLSearchParams(window.location.search);
+  const forceLaunch = params.get("launch") === "1";
+  const skipLaunch = params.get("launch") === "0";
+  let hasSeenLaunch = false;
+  try {
+    hasSeenLaunch = sessionStorage.getItem("yopo:launch-seen") === "1";
+  } catch {
+    hasSeenLaunch = false;
+  }
+  if (skipLaunch || (hasSeenLaunch && !forceLaunch)) {
+    launch.remove();
+    return;
+  }
+
+  const appShell = $(".app-shell");
+  const field = new LaunchParticleField($("#launchParticles"));
+  const reduced = prefersReducedMotion.matches;
+  let closed = false;
+  let revealTimer;
+  let finishTimer;
+
+  document.body.classList.add("launch-active");
+  if (appShell) {
+    appShell.inert = true;
+    appShell.setAttribute("aria-hidden", "true");
+  }
+  launch.focus({ preventScroll: true });
+
+  const reveal = () => {
+    launch.classList.add("is-revealed");
+    const sequence = launch.querySelector(".launch-sequence");
+    if (sequence) sequence.lastChild.textContent = " gaze locked / surface signal";
+  };
+
+  const finish = (focusWorkbench = false) => {
+    if (closed) return;
+    closed = true;
+    window.clearTimeout(revealTimer);
+    window.clearTimeout(finishTimer);
+    try {
+      sessionStorage.setItem("yopo:launch-seen", "1");
+    } catch {
+      // Session storage may be unavailable in private contexts.
+    }
+    launch.classList.add("is-leaving");
+    document.body.classList.remove("launch-active");
+    if (appShell) {
+      appShell.inert = false;
+      appShell.removeAttribute("aria-hidden");
+    }
+    window.setTimeout(() => {
+      field.destroy();
+      launch.remove();
+      if (focusWorkbench) {
+        const heading = $("#inspect-title");
+        heading?.setAttribute("tabindex", "-1");
+        heading?.focus({ preventScroll: true });
+      }
+    }, reduced ? 120 : 720);
+  };
+
+  $("#launchSkip")?.addEventListener("click", () => finish(true));
+  window.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key === "Escape" || event.key === "Enter") finish(true);
+    },
+    { once: true },
+  );
+
+  revealTimer = window.setTimeout(reveal, reduced ? 80 : 1120);
+  finishTimer = window.setTimeout(() => finish(false), reduced ? 800 : 2750);
+}
+
 function init() {
+  initLaunchScreen();
   if (window.lucide) {
     window.lucide.createIcons({
       attrs: { "stroke-width": 1.8 },
@@ -847,6 +1103,7 @@ async function loadModelManifest() {
       `已加载 ${manifest.segmentation.length + manifest.recognition.length} 个真实 PyTorch 导出权重；浏览器仅执行所选检查点。`;
     setSceneState("ONNX READY");
     syncRunButtonState();
+    updateInferenceUI();
     preloadInferenceAssets();
   } catch (error) {
     state.manifestError = error;
@@ -898,11 +1155,11 @@ function updateInferenceUI() {
   $("#reportParams").textContent =
     seg.manifest && rec.manifest
       ? `${(seg.manifest.parametersM + rec.manifest.parametersM).toFixed(3)} M`
-      : "—";
+      : "-";
 
   if (!analysis) {
-    $("#floatDice").textContent = "—";
-    $("#floatLatency").textContent = "—";
+    $("#floatDice").textContent = "-";
+    $("#floatLatency").textContent = "-";
     $("#floatDefect").textContent = "0.00";
     $("#modelStateBadge").textContent = state.manifestReady
       ? "REAL ONNX · NO INPUT"

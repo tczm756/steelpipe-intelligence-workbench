@@ -5,32 +5,61 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="线激光钢管缺陷检测可视化工作台，支持权重推理、粒子模型、云端训练监控、数据上传、代码预览、实时图表与实验对比。"
+      content="YOPO，You only peek once。线激光钢管缺陷检测可视化工作台，支持真实权重推理、粒子模型、训练监控与实验对比。"
     />
-    <title>SteelPipe Intelligence Workbench</title>
+    <title>YOPO - You only peek once</title>
     <link
       rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='13' fill='%23050a0d' stroke='%2359f4e4'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23ff8a3d'/%3E%3C/svg%3E"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M5 8l7 8-3 11M12 8l9 16M21 8l6 8-3 11' fill='none' stroke='%2359f4e4' stroke-width='2' stroke-linecap='round'/%3E%3Ccircle cx='25' cy='9' r='2.2' fill='%23ff8a3d'/%3E%3C/svg%3E"
     />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <a class="skip-link" href="#main">跳至主工作区</a>
 
+    <div
+      class="launch-screen"
+      id="launchScreen"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="launchTitle"
+      tabindex="-1"
+    >
+      <canvas class="launch-particles" id="launchParticles" aria-hidden="true"></canvas>
+      <div class="launch-depth" aria-hidden="true"></div>
+      <div class="launch-horizon" aria-hidden="true"></div>
+      <div class="launch-content">
+        <p class="launch-whisper">surface intelligence</p>
+        <h1 class="launch-wordmark" id="launchTitle">YOPO</h1>
+        <p class="launch-fullname">You only peek once</p>
+      </div>
+      <div class="launch-foot">
+        <span class="launch-sequence"><i></i> particle gaze forming</span>
+        <button class="launch-skip" id="launchSkip" type="button">
+          <span>进入工作台</span>
+          <i data-lucide="arrow-up-right" aria-hidden="true"></i>
+        </button>
+      </div>
+    </div>
+
     <div class="ambient-field" aria-hidden="true">
       <span class="ambient-sweep ambient-sweep-a"></span>
       <span class="ambient-sweep ambient-sweep-b"></span>
+      <span class="flow-thread flow-thread-a"></span>
+      <span class="flow-thread flow-thread-b"></span>
+      <span class="flow-thread flow-thread-c"></span>
     </div>
 
     <div class="app-shell">
       <header class="topbar">
-        <a class="brand" href="#inspect" aria-label="SteelPipe Intelligence 首页">
+        <a class="brand" href="#inspect" aria-label="YOPO 首页">
           <span class="brand-mark" aria-hidden="true">
-            <span></span>
+            <span class="brand-mark-line"></span>
+            <span class="brand-mark-spark"></span>
           </span>
           <span class="brand-copy">
-            <strong>SteelPipe</strong>
-            <small>Intelligence Workbench</small>
+            <strong>YOPO</strong>
+            <small>You only peek once</small>
           </span>
         </a>
 
@@ -54,15 +83,19 @@
 
         <div class="top-actions">
           <div class="runtime-status" aria-label="浏览器推理状态：就绪">
-            <span class="status-orbit" aria-hidden="true"><span></span></span>
+            <span class="status-flow" aria-hidden="true">
+              <i></i><i></i><i></i><i></i>
+            </span>
             <span class="runtime-copy">
-              <strong>Browser ONNX</strong>
-              <small>真实权重 · 本地推理</small>
+              <strong>ONNX online</strong>
+              <small>真实权重已就绪</small>
             </span>
           </div>
-          <button class="button button-primary" type="button" id="newExperimentBtn">
-            <i data-lucide="plus" aria-hidden="true"></i>
-            <span>新建实验</span>
+          <button class="top-create" type="button" id="newExperimentBtn">
+            <span class="top-create-core">
+              <i data-lucide="plus" aria-hidden="true"></i>
+            </span>
+            <span>开始实验</span>
           </button>
         </div>
       </header>
@@ -97,12 +130,12 @@
             <div class="metric-floats" aria-label="当前模型关键指标">
               <div class="metric-float">
                 <span class="metric-label">MASK PX</span>
-                <strong id="floatDice">—</strong>
+                <strong id="floatDice">-</strong>
                 <small>px</small>
               </div>
               <div class="metric-float">
                 <span class="metric-label">LATENCY</span>
-                <strong id="floatLatency">—</strong>
+                <strong id="floatLatency">-</strong>
                 <small>ms</small>
               </div>
               <div class="metric-float metric-float-accent">
@@ -175,7 +208,7 @@
                   <div class="confidence-row" id="confidenceRow" hidden>
                     <div class="confidence-gauge" id="confidenceGauge">
                       <span class="confidence-ring" aria-hidden="true"></span>
-                      <strong id="confidenceValue">—</strong>
+                      <strong id="confidenceValue">-</strong>
                       <small>置信度 %</small>
                     </div>
                     <div class="confidence-copy">
@@ -190,19 +223,19 @@
                   <div class="report-metric-grid" id="reportMetricGrid" hidden>
                     <div>
                       <span>缺陷像素</span>
-                      <strong id="reportDice">—</strong>
+                      <strong id="reportDice">-</strong>
                     </div>
                     <div>
                       <span>连通区域</span>
-                      <strong id="reportIou">—</strong>
+                      <strong id="reportIou">-</strong>
                     </div>
                     <div>
                       <span>分割 / 识别</span>
-                      <strong id="reportBoundary">—</strong>
+                      <strong id="reportBoundary">-</strong>
                     </div>
                     <div>
                       <span>权重参数</span>
-                      <strong id="reportParams">—</strong>
+                      <strong id="reportParams">-</strong>
                     </div>
                   </div>
                 </div>
