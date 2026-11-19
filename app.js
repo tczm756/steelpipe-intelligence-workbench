@@ -107,51 +107,6 @@ const archiveRecords = [
     weights: { seg: "small-unet-ablation", rec: "small-classifier" },
     note: "Plain U-Net / SmallUNet 与单双通道三随机种子对照。",
   },
-  {
-    id: "line-scan-live-047",
-    name: "line-scan-live-047",
-    suite: "recognition",
-    model: "MobileNetV2",
-    status: "running",
-    date: "2026-11-15 14:02",
-    primaryLabel: "Accuracy",
-    primaryValue: 99.18,
-    hardware: "Cloud A100",
-    duration: "18m",
-    runs: 8,
-    weights: { seg: "small-unet-boundary", rec: "mobilenetv2" },
-    note: "现场线激光数据适配，按钢管编号分组。",
-  },
-  {
-    id: "segmentation-demo",
-    name: "segmentation-demo",
-    suite: "segmentation",
-    model: "SmallUNet · seed 44",
-    status: "completed",
-    date: "2026-11-09 18:16",
-    primaryLabel: "Dice",
-    primaryValue: 87.47,
-    hardware: "Local CUDA",
-    duration: "4m 32s",
-    runs: 1,
-    weights: { seg: "small-unet-original", rec: "small-classifier-original" },
-    note: "单图推理复现，输出概率图、掩码与叠加图。",
-  },
-  {
-    id: "cbam-stability-031",
-    name: "cbam-stability-031",
-    suite: "recognition",
-    model: "SmallClassifier + CBAM",
-    status: "failed",
-    date: "2026-11-08 09:24",
-    primaryLabel: "Macro-F1",
-    primaryValue: 98.49,
-    hardware: "RTX 3080 Ti",
-    duration: "00m 48s",
-    runs: 1,
-    weights: {},
-    note: "显存碎片导致第三折中断，保留失败上下文。",
-  },
 ];
 
 const state = {
@@ -183,73 +138,23 @@ const state = {
   modelBytePromises: new Map(),
   inferenceStage: "idle",
   inferenceRunning: false,
-  trainingRunning: true,
+  trainingRunning: false,
   trainingComplete: false,
   trainingPausedByUser: false,
-  trainingProgress: 61.8,
-  currentEpoch: 25,
+  trainingProgress: 0,
+  currentEpoch: 0,
   externalStream: false,
   trainingData: [],
   trainingLogSignature: "",
-  uploadTimer: null,
+  trainingProject: null,
+  trainingStreamUrl: "",
+  trainingEventSource: null,
+  trainingConnectionStatus: "idle",
   archiveSearch: "",
   archiveStatus: "all",
   selectedRuns: new Set(["benchmark_v1", "ablation_2026-11-09"]),
   archiveRendered: false,
 };
-
-const defaultCode = `from __future__ import annotations
-
-import argparse
-from pathlib import Path
-
-import torch
-from torch.utils.data import DataLoader
-
-from steelpipe.models import SmallUNet
-
-
-def build_optimizer(model: torch.nn.Module, learning_rate: float):
-    return torch.optim.AdamW(
-        model.parameters(),
-        lr=learning_rate,
-        weight_decay=1e-4,
-    )
-
-
-def train_one_epoch(model, loader, optimizer, criterion, device):
-    model.train()
-    running_loss = 0.0
-
-    for images, masks in loader:
-        images = images.to(device, non_blocking=True)
-        masks = masks.to(device, non_blocking=True)
-
-        optimizer.zero_grad(set_to_none=True)
-        logits = model(images)
-        loss = criterion(logits, masks)
-        loss.backward()
-        optimizer.step()
-
-        running_loss += loss.item() * images.size(0)
-
-    return running_loss / len(loader.dataset)
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--data-root", type=Path, required=True)
-    parser.add_argument("--epochs", type=int, default=40)
-    parser.add_argument("--learning-rate", type=float, default=2e-4)
-    args = parser.parse_args()
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = SmallUNet(in_channels=1, out_channels=1).to(device)
-    print(f"training on {device}")
-
-
-if __name__ == "__main__":
-    main()`;
 
 class ParticlePipe {
   constructor(container) {
@@ -813,8 +718,8 @@ function init() {
     });
   }
 
-  state.trainingData = createInitialTrainingData();
-  renderCode(defaultCode, "scripts/train_segmentation.py");
+  state.trainingData = [];
+  renderCode("", "未连接项目");
   renderTrainingStages();
   updateTrainingUI();
   updateInferenceUI();
@@ -859,7 +764,6 @@ function init() {
     };
   }
   loadModelManifest();
-  startTrainingClock();
 }
 
 function setupNavigation() {
@@ -869,8 +773,8 @@ function setupNavigation() {
 
   $("#newExperimentBtn").addEventListener("click", () => {
     switchView("train");
-    restartTraining();
-    showToast("已创建 run-048，数据与代码上下文已继承。");
+    window.setTimeout(() => $("#trainingStreamUrl")?.focus(), 80);
+    showToast("请先连接真实训练状态流；未连接时不会创建模拟项目。");
   });
 
   const initialHash = window.location.hash.replace("#", "");
@@ -1098,10 +1002,10 @@ async function loadModelManifest() {
     state.manifest = manifest;
     state.manifestReady = true;
     updateWeightOptionLabels();
-    $("#modelStateBadge").textContent = "REAL ONNX READY";
+    $("#modelStateBadge").textContent = "PUBLIC WEIGHTS READY";
     $("#weightIntegrityNote").textContent =
-      `已加载 ${manifest.segmentation.length + manifest.recognition.length} 个真实 PyTorch 导出权重；浏览器仅执行所选检查点。`;
-    setSceneState("ONNX READY");
+      `已加载 ${manifest.segmentation.length + manifest.recognition.length} 个公开对比基准权重：SmallUNet 系列及公开检查点。`;
+    setSceneState("PUBLIC WEIGHTS READY");
     syncRunButtonState();
     updateInferenceUI();
     preloadInferenceAssets();
@@ -1109,10 +1013,10 @@ async function loadModelManifest() {
     state.manifestError = error;
     console.error(error);
     $("#modelStateBadge").textContent = "MODEL MANIFEST ERROR";
-    $("#weightIntegrityNote").textContent = "真实权重清单加载失败，推理功能已停用。";
+    $("#weightIntegrityNote").textContent = "公开权重清单加载失败，推理功能已停用。";
     setSceneState("WEIGHT ERROR");
     setReportEmpty("error", "模型清单不可用", "请确认 models/manifest.json 与 ONNX 文件已正确发布。");
-    showToast("真实权重清单加载失败，请检查模型文件。", "warning");
+    showToast("公开权重清单加载失败，请检查模型文件。", "warning");
     $$(".weight-option").forEach((button) => {
       button.disabled = true;
     });
@@ -1162,10 +1066,10 @@ function updateInferenceUI() {
     $("#floatLatency").textContent = "-";
     $("#floatDefect").textContent = "0.00";
     $("#modelStateBadge").textContent = state.manifestReady
-      ? "REAL ONNX · NO INPUT"
+      ? "PUBLIC WEIGHTS · NO INPUT"
       : state.manifestError
         ? "MODEL MANIFEST ERROR"
-        : "LOADING REAL WEIGHTS";
+        : "LOADING PUBLIC WEIGHTS";
     $("#confidenceRow").hidden = true;
     $("#probabilityList").hidden = true;
     $("#reportMetricGrid").hidden = true;
@@ -1173,9 +1077,9 @@ function updateInferenceUI() {
     if (!state.manifestError) {
       setReportEmpty(
         "idle",
-        state.manifestReady ? "等待图像输入" : "正在加载真实权重",
+        state.manifestReady ? "等待图像输入" : "正在加载公开权重",
         state.manifestReady
-          ? "上传后会显示分割概率、缺陷区域和识别类别的真实模型输出。"
+          ? "上传后会显示公开对比基准权重的分割概率、缺陷区域和识别类别输出。"
           : "首次进入不会执行计算，模型只会在上传图像后按需加载。",
       );
     }
@@ -1469,7 +1373,7 @@ function fetchModelBytes(file) {
 async function runInference() {
   if (state.inferenceRunning) return;
   if (!state.manifestReady) {
-    showToast("真实权重仍在加载，请稍候。", "warning");
+    showToast("公开对比权重仍在加载，请稍候。", "warning");
     return;
   }
   if (!state.imageBitmap) {
@@ -2039,16 +1943,6 @@ function updateMobileReportState() {
   }
 }
 
-function createInitialTrainingData() {
-  return Array.from({ length: 24 }, (_, index) => {
-    const t = index / 23;
-    return {
-      loss: 0.284 * Math.exp(-3.15 * t) + 0.036 + Math.sin(index * 1.9) * 0.008,
-      dice: 0.704 + 0.17 * (1 - Math.exp(-3.4 * t)) + Math.sin(index * 1.37) * 0.0024,
-    };
-  });
-}
-
 function renderTrainingStages() {
   const rail = $("#trainingStages");
   rail.innerHTML = trainingStages
@@ -2072,19 +1966,75 @@ function getStageIndex(progress) {
 }
 
 function updateTrainingUI() {
-  const progress = Math.min(100, state.trainingProgress);
-  $("#trainingProgressValue").textContent = progress.toFixed(1);
-  $("#liveLoss").textContent = state.trainingData.at(-1)?.loss.toFixed(4) || "0.0000";
-  $("#liveDice").textContent = state.trainingData.at(-1)?.dice.toFixed(4) || "0.0000";
-  $("#liveEpoch").textContent = String(state.currentEpoch).padStart(2, "0");
-
-  const remainingMinutes = Math.max(0, (100 - progress) * 0.315);
-  const minutes = Math.floor(remainingMinutes);
-  const seconds = Math.round((remainingMinutes - minutes) * 60);
-  $("#trainingEta").textContent =
-    progress >= 100 ? "训练完成 · 检查点已归档" : `预计 ${minutes} 分 ${String(seconds).padStart(2, "0")} 秒完成`;
+  const hasProject = Boolean(state.trainingProject);
+  $("#trainingEmptyState").hidden = hasProject;
+  $("#trainingRunProgress").hidden = !hasProject;
+  $("#trainingGrid").hidden = !hasProject;
+  $("#trainingShelf").hidden = !hasProject;
 
   const statusBadge = $("#trainingStatusBadge");
+  const pauseButton = $("#pauseTrainingBtn");
+  const startButton = $("#restartTrainingBtn");
+  if (!hasProject) {
+    statusBadge.className = "run-state is-idle";
+    statusBadge.innerHTML = "<span></span>NO PROJECT";
+    $("#trainingProgressValue").textContent = "0.0";
+    $("#trainingEta").textContent = "无训练项目";
+    $("#liveLoss").textContent = "--";
+    $("#liveDice").textContent = "--";
+    $("#liveEpoch").textContent = "--";
+    $("#trainingEyebrow").textContent = "CLOUD RUN / NO PROJECT";
+    $("#trainingProjectMeta").textContent = "当前未连接训练服务或训练项目。";
+    $("#datasetMountedValue").textContent = "未挂载";
+    $("#datasetPipeValue").textContent = "-- / --";
+    $("#datasetSplitValue").textContent = "-- / -- / --";
+    $("#datasetLeakValue").textContent = "待验证";
+    $("#shelfState").textContent = "无活动项目";
+    setEventStreamStatus("未连接", false);
+    pauseButton.disabled = true;
+    startButton.disabled = true;
+    pauseButton.querySelector("span").textContent = "控制待接入";
+    startButton.querySelector("span").textContent = "等待实例";
+    updateTrainingVitals({});
+    renderTrainingChart();
+    return;
+  }
+
+  const progress = Math.min(100, state.trainingProgress);
+  $("#trainingProgressValue").textContent = progress.toFixed(1);
+  $("#liveLoss").textContent = state.trainingData.at(-1)?.loss.toFixed(4) || "--";
+  $("#liveDice").textContent = state.trainingData.at(-1)?.dice.toFixed(4) || "--";
+  $("#liveEpoch").textContent = state.currentEpoch ? String(state.currentEpoch).padStart(2, "0") : "--";
+  $("#trainingEta").textContent =
+    progress >= 100
+      ? "训练完成 · 等待检查点归档信息"
+      : state.trainingProject?.etaText || "等待训练服务更新预计时间";
+  $("#trainingEyebrow").textContent = state.trainingProject?.hardware
+    ? `CLOUD RUN / ${state.trainingProject.hardware}`
+    : "CLOUD RUN / CONNECTED";
+  $("#trainingProjectMeta").textContent = [
+    state.trainingProject?.runId || "未命名运行",
+    state.trainingProject?.model || "模型信息待推送",
+    state.trainingProject?.seed ? `seed ${state.trainingProject.seed}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  $("#datasetMountedValue").textContent =
+    state.trainingProject?.dataset?.name || "已连接";
+  $("#datasetPipeValue").textContent =
+    state.trainingProject?.dataset?.pipes &&
+    state.trainingProject?.dataset?.sequences
+      ? `${state.trainingProject.dataset.pipes} / ${state.trainingProject.dataset.sequences}`
+      : "-- / --";
+  $("#datasetSplitValue").textContent =
+    state.trainingProject?.dataset?.split
+      ? String(state.trainingProject.dataset.split)
+      : "-- / -- / --";
+  $("#datasetLeakValue").textContent =
+    state.trainingProject?.dataset?.leakCheck || "待验证";
+  $("#shelfState").textContent =
+    state.trainingProject?.dataset?.state || "训练服务已连接";
+
   if (state.trainingComplete) {
     statusBadge.className = "run-state";
     statusBadge.innerHTML = "<span></span>COMPLETE";
@@ -2104,41 +2054,43 @@ function updateTrainingUI() {
     dot.textContent = index < activeStage || progress >= 100 ? "✓" : trainingStages[index].short;
   });
 
-  const pauseButton = $("#pauseTrainingBtn");
-  if (pauseButton) {
-    const label = pauseButton.querySelector("span");
-    const icon = pauseButton.querySelector("i, svg");
-    let nextIcon = "pause";
-    if (state.trainingComplete) {
-      pauseButton.disabled = true;
-      label.textContent = "已完成";
-      nextIcon = "check";
-    } else if (state.trainingRunning) {
-      pauseButton.disabled = false;
-      label.textContent = "暂停";
-      nextIcon = "pause";
-    } else {
-      pauseButton.disabled = false;
-      label.textContent = "继续";
-      nextIcon = "play";
-    }
-    if (icon) {
-      const replacement = document.createElement("i");
-      replacement.setAttribute("data-lucide", nextIcon);
-      replacement.setAttribute("aria-hidden", "true");
-      icon.replaceWith(replacement);
-    }
-    window.lucide?.createIcons({ attrs: { "stroke-width": 1.8 } });
-  }
+  const canControl = Boolean(state.trainingProject?.controls);
+  pauseButton.disabled = !canControl || state.trainingComplete;
+  startButton.disabled = !canControl;
+  pauseButton.querySelector("span").textContent = canControl
+    ? state.trainingRunning
+      ? "暂停"
+      : "继续"
+    : "控制未开放";
+  startButton.querySelector("span").textContent = canControl
+    ? "开始训练"
+    : "控制未开放";
 
   renderTrainingChart();
-  updateTrainingVitals();
+  updateTrainingVitals(state.trainingProject?.vitals || {});
   updateEventLogThreshold();
 }
 
 function renderTrainingChart() {
   const chart = $("#trainingChart");
   if (!chart) return;
+  const data = state.trainingData;
+  const empty = $("#trainingChartEmpty");
+  if (!data.length) {
+    ["#lossLine", "#diceLine", "#lossArea"].forEach((selector) => {
+      $(selector)?.setAttribute("d", "");
+    });
+    ["#lossCursor", "#diceCursor"].forEach((selector) => {
+      const cursor = $(selector);
+      cursor?.setAttribute("cx", "0");
+      cursor?.setAttribute("cy", "0");
+    });
+    $(".chart-grid", chart).innerHTML = "";
+    $(".chart-axis", chart).innerHTML = "";
+    if (empty) empty.hidden = false;
+    return;
+  }
+  if (empty) empty.hidden = true;
   const rect = chart.getBoundingClientRect();
   const width = Math.max(280, Math.round(rect.width || 760));
   const height = Math.max(190, Math.round(rect.height || 292));
@@ -2147,9 +2099,6 @@ function renderTrainingChart() {
   const right = width - (width < 500 ? 10 : 26);
   const top = width < 500 ? 14 : 20;
   const bottom = height - (width < 500 ? 38 : 46);
-  const data = state.trainingData;
-  if (!data.length) return;
-
   const xAt = (index) => left + (index / Math.max(1, data.length - 1)) * (right - left);
   const lossY = (value) => bottom - ((clamp(value, 0.02, 0.33) - 0.02) / 0.31) * (bottom - top);
   const diceY = (value) => bottom - ((clamp(value, 0.68, 0.91) - 0.68) / 0.23) * (bottom - top);
@@ -2199,166 +2148,246 @@ function renderTrainingChart() {
   axis.innerHTML = `${xLabels}${yLabels}<text x="${(left + right) / 2}" y="${height - 2}" text-anchor="middle">EPOCH / SAMPLE</text>`;
 }
 
-function updateTrainingVitals() {
-  if (!state.trainingRunning) return;
-  const base = state.trainingProgress;
-  const gpu = Math.round(clamp(74 + Math.sin(base * 0.12) * 7 + Math.random() * 5, 61, 94));
-  const vram = clamp(17.8 + Math.sin(base * 0.05) * 0.9 + Math.random() * 0.45, 17.2, 20.4);
-  const throughput = Math.round(clamp(120 + Math.sin(base * 0.2) * 11 + Math.random() * 7, 108, 142));
-  const temperature = Math.round(clamp(58 + gpu * 0.06 + Math.random() * 2, 60, 69));
-  const loader = Math.round(clamp(81 + Math.sin(base * 0.16) * 5 + Math.random() * 4, 74, 92));
-  const bandwidth = Math.round(clamp(58 + Math.cos(base * 0.13) * 7 + Math.random() * 5, 48, 72));
+function updateTrainingVitals(vitals = {}) {
+  const gpu = Number.isFinite(vitals.gpuLoad) ? Math.round(vitals.gpuLoad) : null;
+  const vramUsed = Number.isFinite(vitals.vramUsedGb) ? vitals.vramUsedGb : null;
+  const vramTotal = Number.isFinite(vitals.vramTotalGb) ? vitals.vramTotalGb : null;
+  const throughput = Number.isFinite(vitals.throughput) ? Math.round(vitals.throughput) : null;
+  const temperature = Number.isFinite(vitals.temperature) ? Math.round(vitals.temperature) : null;
+  const loader = Number.isFinite(vitals.dataloader) ? Math.round(vitals.dataloader) : null;
+  const bandwidth = Number.isFinite(vitals.bandwidth) ? Math.round(vitals.bandwidth) : null;
 
-  $("#gpuLoad").textContent = gpu;
+  $("#gpuLoad").textContent = gpu === null ? "--" : String(gpu);
   $("#gpuRing").style.background =
-    `conic-gradient(var(--cyan) 0deg ${gpu * 3.6}deg, rgba(89, 244, 228, 0.08) ${gpu * 3.6}deg 360deg)`;
-  $("#vramValue").textContent = `${vram.toFixed(1)} / 80 GB`;
-  $("#throughputValue").textContent = `${throughput} img/s`;
-  $("#temperatureValue").textContent = `${temperature} °C`;
-  $("#loaderValue").textContent = `${loader}%`;
-  $("#loaderBar").style.width = `${loader}%`;
-  $("#bandwidthValue").textContent = `${bandwidth}%`;
-  $("#bandwidthBar").style.width = `${bandwidth}%`;
-}
-
-function startTrainingClock() {
-  if (state.trainingTimer) return;
-  state.trainingTimer = window.setInterval(() => {
-    if (state.externalStream) return;
-    if (!state.trainingRunning) return;
-    const increment = 0.34 + Math.random() * 0.52;
-    state.trainingProgress = Math.min(100, state.trainingProgress + increment);
-    state.currentEpoch = Math.min(40, Math.floor(state.trainingProgress / 2.45) + 1);
-
-    const t = state.currentEpoch / 40;
-    const loss = 0.286 * Math.exp(-3.2 * t) + 0.032 + (Math.random() - 0.5) * 0.004;
-    const dice = 0.704 + 0.171 * (1 - Math.exp(-3.45 * t)) + (Math.random() - 0.5) * 0.0018;
-    state.trainingData.push({ loss, dice });
-    if (state.trainingData.length > 24) state.trainingData.shift();
-
-    if (state.trainingProgress >= 100) {
-      state.trainingProgress = 100;
-      state.currentEpoch = 40;
-      state.trainingComplete = true;
-      state.trainingRunning = false;
-      addTrainingEvent("ok", "checkpoint saved: runs/047/best.pt");
-      showToast("run-047 训练完成，验证 Dice 0.8755，检查点已归档。");
-    } else if (Math.random() > 0.57) {
-      const messages = [
-        "val step complete · dice stable",
-        "AMP scaler updated · no overflow",
-        "dataloader prefetch 84%",
-        "gradient norm within range",
-        "checkpoint shard verified",
-      ];
-      addTrainingEvent("ok", messages[Math.floor(Math.random() * messages.length)]);
-    }
-
-    updateTrainingUI();
-  }, 1200);
+    gpu === null
+      ? "conic-gradient(rgba(89, 244, 228, 0.08) 0deg 360deg)"
+      : `conic-gradient(var(--cyan) 0deg ${gpu * 3.6}deg, rgba(89, 244, 228, 0.08) ${gpu * 3.6}deg 360deg)`;
+  $("#vramValue").textContent =
+    vramUsed !== null && vramTotal !== null
+      ? `${vramUsed.toFixed(1)} / ${vramTotal.toFixed(0)} GB`
+      : "--";
+  $("#throughputValue").textContent = throughput === null ? "--" : `${throughput} img/s`;
+  $("#temperatureValue").textContent = temperature === null ? "--" : `${temperature} °C`;
+  $("#loaderValue").textContent = loader === null ? "--" : `${loader}%`;
+  $("#loaderBar").style.width = loader === null ? "0%" : `${loader}%`;
+  $("#bandwidthValue").textContent = bandwidth === null ? "--" : `${bandwidth}%`;
+  $("#bandwidthBar").style.width = bandwidth === null ? "0%" : `${bandwidth}%`;
+  $("#vitalsTitle").textContent = vitals.hardware || state.trainingProject?.hardware || "未连接 GPU";
+  $("#checkpointValue").textContent = vitals.checkpoint || "--";
+  $("#checkpointMeta").textContent = vitals.checkpointMeta || "等待训练服务";
 }
 
 function setupTrainingStream() {
+  const form = $("#trainingConnectionForm");
+  const input = $("#trainingStreamUrl");
   const streamUrl = new URLSearchParams(window.location.search).get("stream");
-  if (!streamUrl) return;
-
-  let eventSource;
-  try {
-    eventSource = new EventSource(streamUrl);
-  } catch {
-    showToast("训练流地址无效，已切换为本地演示数据。", "warning");
-    return;
-  }
-
-  state.externalStream = true;
-  let warned = false;
-
-  const applySnapshot = (event) => {
-    let payload;
-    try {
-      payload = JSON.parse(event.data);
-    } catch {
+  if (streamUrl) input.value = streamUrl;
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const value = input.value.trim();
+    if (!value) {
+      setTrainingConnectionStatus("请输入训练状态流地址。", "error");
       return;
     }
-    if (Number.isFinite(payload.progress)) {
-      state.trainingProgress = clamp(payload.progress, 0, 100);
-    }
-    if (Number.isFinite(payload.epoch)) {
-      state.currentEpoch = Math.max(1, Math.round(payload.epoch));
-    }
-    if (Number.isFinite(payload.loss) || Number.isFinite(payload.dice)) {
-      state.trainingData.push({
-        loss: Number.isFinite(payload.loss) ? payload.loss : state.trainingData.at(-1)?.loss || 0.2,
-        dice: Number.isFinite(payload.dice) ? payload.dice : state.trainingData.at(-1)?.dice || 0.71,
-      });
-      if (state.trainingData.length > 24) state.trainingData.shift();
-    }
-    if (payload.status === "completed" || state.trainingProgress >= 100) {
-      state.trainingComplete = true;
-      state.trainingRunning = false;
-    } else if (payload.status === "paused") {
-      state.trainingRunning = false;
-    } else if (payload.status === "running") {
-      state.trainingRunning = true;
-    }
-    updateTrainingUI();
-  };
-
-  eventSource.onmessage = applySnapshot;
-  eventSource.addEventListener("snapshot", applySnapshot);
-  eventSource.addEventListener("log", (event) => {
-    try {
-      const payload = JSON.parse(event.data);
-      addTrainingEvent(payload.level === "warn" ? "warn" : "ok", payload.message || String(event.data));
-    } catch {
-      addTrainingEvent("ok", String(event.data));
-    }
+    connectTrainingStream(value);
   });
-  eventSource.onerror = () => {
-    state.externalStream = false;
-    eventSource.close();
-    if (!warned) {
-      warned = true;
-      showToast("训练流暂时断开，工作台已回退到本地进度演示。", "warning");
-    }
+  if (streamUrl) {
+    connectTrainingStream(streamUrl);
+  } else {
+    state.trainingProject = null;
+    setTrainingConnectionStatus("未连接");
+    updateTrainingUI();
+  }
+}
+
+function setTrainingConnectionStatus(message, tone = "idle") {
+  state.trainingConnectionStatus = tone;
+  const status = $("#trainingConnectionStatus");
+  if (status) {
+    status.textContent = message;
+    status.dataset.tone = tone;
+  }
+}
+
+function setEventStreamStatus(label, active) {
+  const status = $("#eventStreamStatus");
+  if (!status) return;
+  status.classList.toggle("is-idle", !active);
+  status.innerHTML = `<span></span>${escapeHtml(label)}`;
+}
+
+function closeTrainingStream() {
+  state.trainingEventSource?.close();
+  state.trainingEventSource = null;
+  state.externalStream = false;
+}
+
+function applyTrainingSnapshot(payload) {
+  payload = { ...payload, ...(payload.project || {}) };
+  state.trainingConnectionStatus = "connected";
+  setTrainingConnectionStatus("已连接 · 接收真实训练事件", "connected");
+  setEventStreamStatus("真实事件", true);
+  state.trainingProject = {
+    runId: payload.run_id || payload.runId || state.trainingProject?.runId || "已连接训练项目",
+    model: payload.model || state.trainingProject?.model || "",
+    seed: payload.seed ?? state.trainingProject?.seed,
+    hardware: payload.hardware || state.trainingProject?.hardware || "",
+    etaText: payload.eta || payload.eta_text || state.trainingProject?.etaText || "",
+    controls:
+      payload.controls ||
+      payload.control_endpoints ||
+      state.trainingProject?.controls ||
+      null,
+    dataset: payload.dataset || state.trainingProject?.dataset || null,
+    vitals: {
+      ...(state.trainingProject?.vitals || {}),
+      ...(payload.vitals || {}),
+      ...(Number.isFinite(payload.gpu_load) ? { gpuLoad: payload.gpu_load } : {}),
+      ...(Number.isFinite(payload.vram_used_gb) ? { vramUsedGb: payload.vram_used_gb } : {}),
+      ...(Number.isFinite(payload.vram_total_gb) ? { vramTotalGb: payload.vram_total_gb } : {}),
+      ...(Number.isFinite(payload.throughput) ? { throughput: payload.throughput } : {}),
+      ...(Number.isFinite(payload.temperature) ? { temperature: payload.temperature } : {}),
+      ...(Number.isFinite(payload.dataloader) ? { dataloader: payload.dataloader } : {}),
+      ...(Number.isFinite(payload.bandwidth) ? { bandwidth: payload.bandwidth } : {}),
+      ...(payload.checkpoint ? { checkpoint: payload.checkpoint } : {}),
+      ...(payload.checkpoint_meta ? { checkpointMeta: payload.checkpoint_meta } : {}),
+    },
   };
+  if (Number.isFinite(payload.progress)) {
+    state.trainingProgress = clamp(payload.progress, 0, 100);
+  }
+  if (Number.isFinite(payload.epoch)) {
+    state.currentEpoch = Math.max(1, Math.round(payload.epoch));
+  }
+  if (Number.isFinite(payload.loss) || Number.isFinite(payload.dice)) {
+    state.trainingData.push({
+      loss: Number.isFinite(payload.loss)
+        ? payload.loss
+        : state.trainingData.at(-1)?.loss ?? 0,
+      dice: Number.isFinite(payload.dice)
+        ? payload.dice
+        : state.trainingData.at(-1)?.dice ?? 0,
+    });
+    if (state.trainingData.length > 24) state.trainingData.shift();
+  }
+  if (payload.status === "completed" || state.trainingProgress >= 100) {
+    state.trainingComplete = true;
+    state.trainingRunning = false;
+  } else if (payload.status === "paused") {
+    state.trainingComplete = false;
+    state.trainingRunning = false;
+  } else if (payload.status === "running") {
+    state.trainingComplete = false;
+    state.trainingRunning = true;
+  }
+  updateTrainingUI();
+}
+
+function connectTrainingStream(rawUrl) {
+  let url;
+  try {
+    url = new URL(rawUrl, window.location.href);
+  } catch {
+    setTrainingConnectionStatus("状态流地址格式无效。", "error");
+    return;
+  }
+  closeTrainingStream();
+  state.trainingProject = null;
+  state.trainingData = [];
+  state.trainingProgress = 0;
+  state.currentEpoch = 0;
+  state.trainingRunning = false;
+  state.trainingComplete = false;
+  $("#eventLog").innerHTML = "";
+  setTrainingConnectionStatus("正在连接训练服务…", "connecting");
+  setEventStreamStatus("连接中", false);
+  const pageUrl = new URL(window.location.href);
+  pageUrl.searchParams.set("stream", url.href);
+  window.history.replaceState(null, "", pageUrl);
+  updateTrainingUI();
+  try {
+    const eventSource = new EventSource(url.href);
+    state.trainingEventSource = eventSource;
+    state.externalStream = true;
+    eventSource.onopen = () => {
+      setTrainingConnectionStatus("已连接 · 等待项目快照", "connected");
+      setEventStreamStatus("等待数据", false);
+    };
+    eventSource.onmessage = (event) => {
+      try {
+        applyTrainingSnapshot(JSON.parse(event.data));
+      } catch {
+        // Non-JSON SSE messages are treated as log lines below.
+      }
+    };
+    eventSource.addEventListener("snapshot", (event) => {
+      try {
+        applyTrainingSnapshot(JSON.parse(event.data));
+      } catch {
+        setTrainingConnectionStatus("项目快照不是有效 JSON。", "error");
+      }
+    });
+    eventSource.addEventListener("log", (event) => {
+      try {
+        const payload = JSON.parse(event.data);
+        addTrainingEvent(
+          payload.level === "warn" ? "warn" : "ok",
+          payload.message || String(event.data),
+        );
+      } catch {
+        addTrainingEvent("ok", String(event.data));
+      }
+    });
+    eventSource.onerror = () => {
+      closeTrainingStream();
+      state.trainingProject = null;
+      state.trainingRunning = false;
+      state.trainingProgress = 0;
+      state.trainingData = [];
+      setTrainingConnectionStatus("连接中断，请检查实例或状态流地址。", "error");
+      setEventStreamStatus("连接中断", false);
+      updateTrainingUI();
+      showToast("训练服务连接中断，未回退到模拟数据。", "warning");
+    };
+  } catch {
+    state.externalStream = false;
+    setTrainingConnectionStatus("浏览器无法创建 EventSource 连接。", "error");
+  }
 }
 
 function setupTrainingControls() {
-  $("#pauseTrainingBtn").addEventListener("click", () => {
-    if (state.trainingComplete) return;
-    state.trainingRunning = !state.trainingRunning;
-    state.trainingPausedByUser = !state.trainingRunning;
-    addTrainingEvent(
-      state.trainingRunning ? "ok" : "warn",
-      state.trainingRunning ? "run resumed by operator" : "run paused by operator",
-    );
-    updateTrainingUI();
-    showToast(state.trainingRunning ? "训练已继续。" : "训练已暂停，检查点保持安全。");
+  $("#pauseTrainingBtn").addEventListener("click", async () => {
+    const action = state.trainingRunning ? "pause" : "resume";
+    await sendTrainingControl(action);
   });
-
-  $("#restartTrainingBtn").addEventListener("click", restartTraining);
+  $("#restartTrainingBtn").addEventListener("click", async () => {
+    await sendTrainingControl("start");
+  });
 }
 
-function restartTraining() {
-  state.trainingProgress = 0;
-  state.currentEpoch = 1;
-  state.trainingRunning = true;
-  state.trainingComplete = false;
-  state.trainingPausedByUser = false;
-  state.trainingData = createInitialTrainingData().slice(0, 2);
-  state.trainingLogSignature = "";
-  $("#eventLog").innerHTML = "";
-  addTrainingEvent("ok", "run-048 initialized · RTX 4090D");
-  addTrainingEvent("ok", "dataset lock verified · 12 pipes");
-  addTrainingEvent("ok", "SmallUNet + boundary loss compiled");
-  updateTrainingUI();
-  showToast("新训练运行已启动，正在装载数据。");
+async function sendTrainingControl(action) {
+  const endpoint = state.trainingProject?.controls?.[action];
+  if (!endpoint) {
+    showToast("训练服务未提供控制端点，当前仅能观察真实状态。", "warning");
+    return;
+  }
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    showToast(`已提交训练控制：${action}`);
+  } catch (error) {
+    showToast(`训练控制失败：${error.message}`, "warning");
+  }
 }
 
 function addTrainingEvent(type, message) {
   const log = $("#eventLog");
   if (!log) return;
+  log.querySelector(".empty-records")?.remove();
   const now = new Date();
   const time = now.toLocaleTimeString("zh-CN", {
     hour12: false,
@@ -2377,9 +2406,8 @@ function addTrainingEvent(type, message) {
 
 function updateEventLogThreshold() {
   if (!$("#eventLog").children.length) {
-    addTrainingEvent("ok", "run-047 resumed · epoch 25");
-    addTrainingEvent("ok", "validation dice 0.8718");
-    addTrainingEvent("ok", "checkpoint epoch_024.pt verified");
+    $("#eventLog").innerHTML =
+      '<div class="empty-records">尚未收到真实训练事件。</div>';
   }
   const stage = getStageIndex(state.trainingProgress);
   const signature = `${stage}-${state.currentEpoch}`;
@@ -2450,50 +2478,32 @@ function setupUploads() {
 
   $("#resetCodeBtn").addEventListener("click", () => {
     $("#codeUpload").value = "";
-    renderCode(defaultCode, "scripts/train_segmentation.py");
-    showToast("已恢复仓库中的训练脚本示例。");
+    renderCode("", "未连接项目");
+    showToast("未连接训练项目，无服务端代码可恢复。", "warning");
   });
 }
 
 function processDatasetUpload(fileList) {
   const files = Array.from(fileList);
   if (!files.length) return;
-  if (state.uploadTimer) window.clearInterval(state.uploadTimer);
-
   const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
-  $("#uploadProgress").hidden = false;
-  $("#uploadFileName").textContent =
-    files.length === 1 ? files[0].name : `${files[0].name} + ${files.length - 1} 个文件`;
-  $("#uploadPercent").textContent = "0%";
-  $("#uploadBar").style.width = "0%";
-  let progress = 0;
-
-  state.uploadTimer = window.setInterval(() => {
-    progress = Math.min(100, progress + 7 + Math.random() * 11);
-    $("#uploadPercent").textContent = `${Math.round(progress)}%`;
-    $("#uploadBar").style.width = `${progress}%`;
-    $("#uploadFileName").textContent =
-      progress < 42
-        ? "正在读取文件与校验尺寸"
-        : progress < 78
-          ? "正在校验 gray / masks 配对关系"
-          : "正在建立按钢管编号分组的 manifest";
-
-    if (progress >= 100) {
-      window.clearInterval(state.uploadTimer);
-      state.uploadTimer = null;
-      $("#uploadFileName").textContent = `上传完成 · ${formatBytes(totalBytes)}`;
-      $("#datasetFileStrip").innerHTML = files
-        .slice(0, 5)
-        .map(
-          (file) =>
-            `<span><i data-lucide="file-check-2" aria-hidden="true"></i>${escapeHtml(file.name)}</span>`,
-        )
-        .join("");
-      window.lucide?.createIcons({ attrs: { "stroke-width": 1.8 } });
-      showToast(`数据集校验完成：${files.length} 个文件，${formatBytes(totalBytes)}。`);
-    }
-  }, 180);
+  $("#uploadProgress").hidden = true;
+  $("#datasetMountedValue").textContent = "待连接实例";
+  $("#datasetPipeValue").textContent = "-- / --";
+  $("#datasetSplitValue").textContent = "-- / -- / --";
+  $("#datasetLeakValue").textContent = "待连接后校验";
+  $("#shelfState").textContent = "已选择本地文件 · 尚未上传";
+  $("#datasetFileStrip").innerHTML = files
+    .slice(0, 5)
+    .map(
+      (file) =>
+        `<span><i data-lucide="file-check-2" aria-hidden="true"></i>${escapeHtml(file.name)}</span>`,
+    )
+    .join("");
+  window.lucide?.createIcons({ attrs: { "stroke-width": 1.8 } });
+  showToast(
+    `已登记 ${files.length} 个本地文件（${formatBytes(totalBytes)}）；连接训练服务后再上传。`,
+  );
 }
 
 function setupParameterControls() {

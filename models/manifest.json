@@ -43,8 +43,6 @@
           }
         }
       },
-      "sourceCheckpoint": "models/benchmark_v1/segmentation_best.pt",
-      "sourceCheckpointSha256": "f852d3c60c86a46458e3be0ff12a9dc56cb6d31c0ca4a11e730da9503c31ad08",
       "onnxSha256": "89292307fd1e411059a05e399f4fa59542ac77aa9d2b1c115893aa5e47015de4"
     },
     {
@@ -87,8 +85,6 @@
           }
         }
       },
-      "sourceCheckpoint": "models/segmentation/best.pt",
-      "sourceCheckpointSha256": "5e388c4b7076f65702b331f873fa39296dc71a1826317266490990c5e286825e",
       "onnxSha256": "cd6acb35e6e54886719b78718f0107536f2c938de6d263cba52ef047d82c405d"
     },
     {
@@ -131,8 +127,6 @@
           }
         }
       },
-      "sourceCheckpoint": "models/segmentation/ablation_best.pt",
-      "sourceCheckpointSha256": "8bdc811ee6bcd6e829e2d89ff53c1f78d1cb4761f4bdeadd7b724a37fa04e275",
       "onnxSha256": "b508da53a60b1347c84e47212818ee9d6871900c45d550f843ba095608f19676"
     }
   ],
@@ -158,12 +152,12 @@
         "accuracy": 0.9986111111111111,
         "macro_f1": 0.9987222829661467,
         "per_class_f1": [
-          1.0,
+          1,
           0.997624703087886,
-          1.0,
-          1.0,
+          1,
+          1,
           0.9947089947089947,
-          1.0
+          1
         ],
         "loss": 0.01259675900413034,
         "confusion": [
@@ -217,8 +211,6 @@
           ]
         ]
       },
-      "sourceCheckpoint": "models/benchmark_v1/recognition_best.pt",
-      "sourceCheckpointSha256": "cf462af48c23d13a553b98e78ac274df17563b8278b792593afaa299dce847a3",
       "onnxSha256": "eaa65cf98c74cd0cdbfc32296b17bb11c38eac772b5ef4101e860335a0008f27"
     },
     {
@@ -239,15 +231,15 @@
       ],
       "parametersM": 0.685638,
       "metrics": {
-        "accuracy": 1.0,
-        "macro_f1": 1.0,
+        "accuracy": 1,
+        "macro_f1": 1,
         "per_class_f1": [
-          1.0,
-          1.0,
-          1.0,
-          1.0,
-          1.0,
-          1.0
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
         ],
         "loss": 0.00536946196001635,
         "confusion": [
@@ -301,8 +293,6 @@
           ]
         ]
       },
-      "sourceCheckpoint": "models/recognition/ablation_best.pt",
-      "sourceCheckpointSha256": "f635c630298665de7eb1de899235d492a874b62a5d853b083b93abe6c6a7c50d",
       "onnxSha256": "f900e45ed65865232d1fee87f51c39bb9b85c336b1c0c539ae5b359aabc56bc8"
     },
     {
@@ -326,11 +316,11 @@
         "accuracy": 0.9986111111111111,
         "macro_f1": 0.9989770581500811,
         "per_class_f1": [
-          1.0,
+          1,
           0.9976359338061466,
-          1.0,
-          1.0,
-          1.0,
+          1,
+          1,
+          1,
           0.9962264150943396
         ],
         "loss": 0.008131684094445922,
@@ -385,8 +375,6 @@
           ]
         ]
       },
-      "sourceCheckpoint": "models/recognition/best.pt",
-      "sourceCheckpointSha256": "d073e8080971814eadb46a040109be557d3f8e06137c9072167ceb40bd85e408",
       "onnxSha256": "f65c324bcb6b2dd7b2e97f2652a39a24ee1027d8a55d83d17e84852b5a7e1f8b"
     }
   ],
@@ -412,5 +400,6 @@
       "crop": "segmentation mask bounding box expanded by 20%",
       "output": "softmax class probabilities"
     }
-  }
+  },
+  "weightVisibility": "public-benchmark"
 }

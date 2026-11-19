@@ -1,0 +1,68 @@
+{
+  "formatVersion": 1,
+  "weightVisibility": "public-benchmark",
+  "publicSet": "SmallUNet and published comparison checkpoints",
+  "forbiddenExtensions": [
+    ".ckpt",
+    ".pkl",
+    ".pt",
+    ".pth",
+    ".safetensors"
+  ],
+  "models": [
+    {
+      "id": "mobilenetv2",
+      "kind": "recognition",
+      "displayName": "MobileNetV2",
+      "file": "models/recognition-mobilenetv2.onnx",
+      "sha256": "eaa65cf98c74cd0cdbfc32296b17bb11c38eac772b5ef4101e860335a0008f27",
+      "compressedFile": "models/recognition-mobilenetv2.onnx.gz",
+      "compressedSha256": "5140402d8e60c818f82b8a5625267e17106cbac7fb79b6541aae002ed70194d2"
+    },
+    {
+      "id": "small-classifier",
+      "kind": "recognition",
+      "displayName": "SmallDefectClassifier 消融最佳",
+      "file": "models/recognition-small-ablation.onnx",
+      "sha256": "f900e45ed65865232d1fee87f51c39bb9b85c336b1c0c539ae5b359aabc56bc8",
+      "compressedFile": "models/recognition-small-ablation.onnx.gz",
+      "compressedSha256": "fa09938946c72ae4287604e2a11d03c385ff40c43094af288634ea653a83dd92"
+    },
+    {
+      "id": "small-classifier-original",
+      "kind": "recognition",
+      "displayName": "SmallDefectClassifier 原始最佳",
+      "file": "models/recognition-small-original.onnx",
+      "sha256": "f65c324bcb6b2dd7b2e97f2652a39a24ee1027d8a55d83d17e84852b5a7e1f8b",
+      "compressedFile": "models/recognition-small-original.onnx.gz",
+      "compressedSha256": "5c17a03adee1ac548f9a306604806bb24d080fc9271666397f25ffefdf9b0571"
+    },
+    {
+      "id": "small-unet-ablation",
+      "kind": "segmentation",
+      "displayName": "SmallUNet 消融最佳",
+      "file": "models/segmentation-ablation.onnx",
+      "sha256": "b508da53a60b1347c84e47212818ee9d6871900c45d550f843ba095608f19676",
+      "compressedFile": "models/segmentation-ablation.onnx.gz",
+      "compressedSha256": "88fd784fa7e734b0238aa37c0b301614a072eec2babc21bbc8838b7c657e9296"
+    },
+    {
+      "id": "small-unet-boundary",
+      "kind": "segmentation",
+      "displayName": "SmallUNet + 边界感知损失",
+      "file": "models/segmentation-boundary.onnx",
+      "sha256": "89292307fd1e411059a05e399f4fa59542ac77aa9d2b1c115893aa5e47015de4",
+      "compressedFile": "models/segmentation-boundary.onnx.gz",
+      "compressedSha256": "b821e2737b1f16f74099bf9ed7e4bc8f0d7a7ff0b473dc7132087c10586ce528"
+    },
+    {
+      "id": "small-unet-original",
+      "kind": "segmentation",
+      "displayName": "SmallUNet 原始最佳",
+      "file": "models/segmentation-original.onnx",
+      "sha256": "cd6acb35e6e54886719b78718f0107536f2c938de6d263cba52ef047d82c405d",
+      "compressedFile": "models/segmentation-original.onnx.gz",
+      "compressedSha256": "af58e62910cc727f6276c985c9b278c2e15f7313cc9a37b46854015a66b36d25"
+    }
+  ]
+}

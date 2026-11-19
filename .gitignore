@@ -1,4 +1,15 @@
 .tools/
 screenshots/
+.qa/
 ui-smoke-test.cjs
 *.log
+cloud-training.local.json
+.env*
+*.pt
+*.pth
+*.ckpt
+*.safetensors
+*.pkl
+private/
+models/private/
+secrets/

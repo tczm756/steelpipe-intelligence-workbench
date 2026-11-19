@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="YOPO，You only peek once。线激光钢管缺陷检测可视化工作台，支持真实权重推理、粒子模型、训练监控与实验对比。"
+      content="YOPO，You only peek once。线激光钢管缺陷检测可视化工作台，支持公开对比权重推理、粒子模型、训练监控与实验对比。"
     />
     <title>YOPO - You only peek once</title>
     <link
@@ -82,20 +82,20 @@
         </nav>
 
         <div class="top-actions">
-          <div class="runtime-status" aria-label="浏览器推理状态：就绪">
+          <div class="runtime-status" aria-label="公开对比权重推理状态：就绪">
             <span class="status-flow" aria-hidden="true">
               <i></i><i></i><i></i><i></i>
             </span>
             <span class="runtime-copy">
               <strong>ONNX online</strong>
-              <small>真实权重已就绪</small>
+              <small>公开对比权重已就绪</small>
             </span>
           </div>
           <button class="top-create" type="button" id="newExperimentBtn">
             <span class="top-create-core">
-              <i data-lucide="plus" aria-hidden="true"></i>
+              <i data-lucide="plug-zap" aria-hidden="true"></i>
             </span>
-            <span>开始实验</span>
+            <span>连接训练</span>
           </button>
         </div>
       </header>
@@ -105,26 +105,26 @@
           <div class="inspect-stage" id="inspectStage">
             <div class="stage-grid" aria-hidden="true"></div>
             <div class="particle-stage" id="particleStage" role="img" aria-label="一组青色粒子构成旋转的钢管三维模型，当前尚未载入图像且没有缺陷标记">
-              <span class="sr-only">交互式钢管表面缺陷粒子模型。上传图像并完成真实 ONNX 推理后，橙色缺陷粒子会依据分割掩码生成。</span>
+              <span class="sr-only">交互式钢管表面缺陷粒子模型。上传图像并完成公开对比权重推理后，橙色缺陷粒子会依据分割掩码生成。</span>
             </div>
             <div class="scan-beam" aria-hidden="true"></div>
 
             <div class="stage-heading">
               <div class="eyebrow">
                 <span class="eyebrow-index">01</span>
-                <span>WEIGHT LAB / PIPE-047</span>
+                <span>WEIGHT LAB / ONNX</span>
               </div>
               <div class="stage-title-row">
                 <h1 id="inspect-title">缺陷概率勘探</h1>
-                <span class="model-state" id="modelStateBadge">REAL ONNX · NO INPUT</span>
+                <span class="model-state" id="modelStateBadge">PUBLIC WEIGHTS · NO INPUT</span>
               </div>
-              <p>上传线激光图像，在浏览器内执行真实权重推理；未上传前不计算、不生成缺陷。</p>
+              <p>上传线激光图像，在浏览器内执行公开对比权重推理；未上传前不计算、不生成缺陷。</p>
             </div>
 
             <div class="scene-readout" aria-label="模型场景状态">
               <span class="scene-axis">θ 184.20°</span>
               <span class="scene-axis">Z 03.64 m</span>
-              <span class="scene-live" id="runtimeSceneState" aria-live="polite"><span></span>ONNX READY</span>
+              <span class="scene-live" id="runtimeSceneState" aria-live="polite"><span></span>PUBLIC WEIGHTS READY</span>
             </div>
 
             <div class="metric-floats" aria-label="当前模型关键指标">
@@ -202,7 +202,7 @@
                   <div class="report-empty" id="reportEmpty">
                     <i data-lucide="scan-search" aria-hidden="true"></i>
                     <strong>等待图像输入</strong>
-                    <p>上传后会显示分割概率、缺陷区域和识别类别的真实模型输出。</p>
+                    <p>上传后会显示公开对比基准权重的分割概率、缺陷区域和识别类别输出。</p>
                   </div>
 
                   <div class="confidence-row" id="confidenceRow" hidden>
@@ -295,7 +295,7 @@
                     />
                     <div class="image-placeholder recognition-placeholder" id="cropPlaceholder">等待缺陷区域</div>
                     <figcaption>
-                      <span>识别模型真实输入</span>
+                      <span>识别模型输入</span>
                       <strong id="explainModel">MobileNetV2</strong>
                     </figcaption>
                   </figure>
@@ -309,8 +309,8 @@
             <div class="inspect-controls">
               <div class="control-head">
                 <div>
-                  <span class="panel-kicker">MODEL ROUTER</span>
-                  <strong>权重与阈值</strong>
+                  <span class="panel-kicker">PUBLIC BENCHMARK WEIGHTS</span>
+                  <strong>公开对比权重与阈值</strong>
                 </div>
                 <button class="text-button report-toggle" type="button" id="reportToggleBtn">
                   <i data-lucide="panel-right-open" aria-hidden="true"></i>
@@ -420,7 +420,7 @@
             </div>
           </div>
           <div class="view-footnote">
-            <span id="weightIntegrityNote">真实 PyTorch 权重导出为 ONNX，在浏览器本地执行；未上传图像前不产生推理结果。</span>
+            <span id="weightIntegrityNote">公开对比基准权重：SmallUNet 系列及公开检查点。ONNX 在浏览器本地执行；未上传图像前不产生推理结果。</span>
             <span class="footnote-right">ONNX · WASM · 分割 320×320 · 识别 128×128</span>
           </div>
         </section>
@@ -430,39 +430,68 @@
             <div>
               <div class="eyebrow">
                 <span class="eyebrow-index">02</span>
-                <span>CLOUD RUN / RTX 4090D</span>
+                <span id="trainingEyebrow">CLOUD RUN / NO PROJECT</span>
               </div>
               <div class="stage-title-row">
                 <h1 id="train-title">云端训练监控</h1>
-                <span class="run-state is-live" id="trainingStatusBadge"><span></span>RUNNING</span>
+                <span class="run-state is-idle" id="trainingStatusBadge" role="status" aria-atomic="true"><span></span>NO PROJECT</span>
               </div>
-              <p>运行 047 · SmallUNet 边界增强 · seed 44</p>
+              <p id="trainingProjectMeta">当前未连接训练服务或训练项目。</p>
             </div>
             <div class="train-heading-actions">
-              <button class="button button-secondary" type="button" id="pauseTrainingBtn">
+              <button class="button button-secondary" type="button" id="pauseTrainingBtn" disabled>
                 <i data-lucide="pause" aria-hidden="true"></i>
-                <span>暂停</span>
+                <span>控制待接入</span>
               </button>
-              <button class="button button-primary" type="button" id="restartTrainingBtn">
+              <button class="button button-primary" type="button" id="restartTrainingBtn" disabled>
                 <i data-lucide="rotate-ccw" aria-hidden="true"></i>
-                <span>重新运行</span>
+                <span>等待实例</span>
               </button>
             </div>
           </div>
 
-          <div class="run-progress-band">
+          <div class="training-empty-state" id="trainingEmptyState" role="status" aria-live="polite">
+            <span class="training-empty-icon" aria-hidden="true">
+              <i data-lucide="server-off"></i>
+            </span>
+            <div class="training-empty-copy">
+              <span class="panel-kicker">NO ACTIVE PROJECT</span>
+              <h2>暂无云训练项目</h2>
+              <p>工作台不生成虚假训练运行。连接真实状态流后，才会显示项目、GPU 遥测、事件和检查点。</p>
+            </div>
+            <form class="training-connection-form" id="trainingConnectionForm">
+              <label for="trainingStreamUrl">训练状态流地址</label>
+              <input
+                id="trainingStreamUrl"
+                name="stream"
+                type="url"
+                inputmode="url"
+                autocomplete="off"
+                placeholder="http://127.0.0.1:9000/training/events"
+                aria-describedby="trainingConnectionHint trainingConnectionStatus"
+              />
+              <button class="button button-primary" type="submit" id="connectTrainingBtn">
+                <i data-lucide="plug-zap" aria-hidden="true"></i>
+                <span>连接训练服务</span>
+              </button>
+              <small id="trainingConnectionHint">仅填写 SSE 状态流。不要在网页中输入 SSH 密码或私钥。</small>
+              <p class="connection-status" id="trainingConnectionStatus">未连接</p>
+            </form>
+          </div>
+
+          <div class="run-progress-band" id="trainingRunProgress" hidden>
             <div class="run-progress-copy">
               <span class="panel-kicker">TRAINING PROGRESS</span>
               <div>
-                <strong id="trainingProgressValue">61.8</strong>
+                <strong id="trainingProgressValue">0.0</strong>
                 <span>%</span>
               </div>
-              <small id="trainingEta">预计 12 分 08 秒完成</small>
+              <small id="trainingEta">无训练项目</small>
             </div>
             <div class="stage-rail" id="trainingStages" aria-label="训练阶段"></div>
           </div>
 
-          <div class="training-grid">
+          <div class="training-grid" id="trainingGrid" hidden>
             <div class="training-main">
               <div class="chart-panel">
                 <div class="chart-head">
@@ -473,15 +502,15 @@
                   <div class="chart-values">
                     <div>
                       <span>train loss</span>
-                      <strong id="liveLoss">0.0632</strong>
+                      <strong id="liveLoss">--</strong>
                     </div>
                     <div>
                       <span>val Dice</span>
-                      <strong id="liveDice">0.8718</strong>
+                      <strong id="liveDice">--</strong>
                     </div>
                     <div>
                       <span>epoch</span>
-                      <strong id="liveEpoch">25</strong>
+                      <strong id="liveEpoch">--</strong>
                     </div>
                   </div>
                 </div>
@@ -495,7 +524,7 @@
                     preserveAspectRatio="none"
                   >
                     <title id="trainingChartTitle">训练损失和验证 Dice 实时曲线</title>
-                    <desc id="trainingChartDesc">损失逐步下降，验证 Dice 逐步上升，当前训练仍在进行。</desc>
+                    <desc id="trainingChartDesc">尚未连接训练项目，无实时曲线。</desc>
                     <g class="chart-grid" aria-hidden="true"></g>
                     <path id="lossArea" class="chart-area chart-area-loss" d=""></path>
                     <path id="lossLine" class="chart-line chart-line-loss" d=""></path>
@@ -505,10 +534,11 @@
                     <g class="chart-axis" aria-hidden="true"></g>
                   </svg>
                 </div>
+                <div class="chart-empty" id="trainingChartEmpty">等待真实训练事件流</div>
                 <div class="chart-legend">
                   <span class="legend-item legend-loss"><i></i>训练损失</span>
                   <span class="legend-item legend-dice"><i></i>验证 Dice</span>
-                  <span class="chart-caption">每 1.2 秒刷新 · 最近 24 个采样点</span>
+                  <span class="chart-caption">由训练服务推送 · 最近 24 个采样点</span>
                 </div>
               </div>
 
@@ -518,7 +548,7 @@
                     <span class="panel-kicker">EVENT STREAM</span>
                     <h2>训练事件</h2>
                   </div>
-                  <span class="console-live"><span></span>实时写入</span>
+                  <span class="console-live is-idle" id="eventStreamStatus"><span></span>未连接</span>
                 </div>
                 <div class="event-log" id="eventLog" aria-live="polite"></div>
               </div>
@@ -528,7 +558,7 @@
               <div class="vitals-head">
                 <div>
                   <span class="panel-kicker">GPU VITALS</span>
-                  <h2 id="vitalsTitle">A100 · 80 GB</h2>
+                  <h2 id="vitalsTitle">未连接 GPU</h2>
                 </div>
                 <span class="vital-signal" aria-hidden="true">
                   <i></i><i></i><i></i><i></i><i></i>
@@ -538,45 +568,45 @@
               <div class="vitals-primary">
                 <div class="vital-ring" id="gpuRing">
                   <span aria-hidden="true"></span>
-                  <strong id="gpuLoad">78</strong>
+                  <strong id="gpuLoad">--</strong>
                   <small>GPU %</small>
                 </div>
                 <div class="vitals-numbers">
                   <div>
                     <span>显存</span>
-                    <strong id="vramValue">18.4 / 80 GB</strong>
+                    <strong id="vramValue">--</strong>
                   </div>
                   <div>
                     <span>吞吐</span>
-                    <strong id="throughputValue">128 img/s</strong>
+                    <strong id="throughputValue">--</strong>
                   </div>
                   <div>
                     <span>温度</span>
-                    <strong id="temperatureValue">62 °C</strong>
+                    <strong id="temperatureValue">--</strong>
                   </div>
                 </div>
               </div>
 
               <div class="vitals-bars">
                 <div class="vital-bar">
-                  <div><span>DataLoader</span><strong id="loaderValue">84%</strong></div>
-                  <div class="bar-track"><span id="loaderBar" style="width: 84%"></span></div>
+                  <div><span>DataLoader</span><strong id="loaderValue">--</strong></div>
+                  <div class="bar-track"><span id="loaderBar" style="width: 0%"></span></div>
                 </div>
                 <div class="vital-bar">
-                  <div><span>显存带宽</span><strong id="bandwidthValue">61%</strong></div>
-                  <div class="bar-track"><span id="bandwidthBar" style="width: 61%"></span></div>
+                  <div><span>显存带宽</span><strong id="bandwidthValue">--</strong></div>
+                  <div class="bar-track"><span id="bandwidthBar" style="width: 0%"></span></div>
                 </div>
               </div>
 
               <div class="vitals-checkpoint">
                 <span>最近检查点</span>
-                <strong>epoch_024.pt</strong>
-                <small>已安全写入 · 126 MB</small>
+                <strong id="checkpointValue">--</strong>
+                <small id="checkpointMeta">等待训练服务</small>
               </div>
             </aside>
           </div>
 
-          <div class="training-shelf" id="trainingShelf">
+          <div class="training-shelf" id="trainingShelf" hidden>
             <div class="shelf-head">
               <div class="shelf-tabs" role="tablist" aria-label="训练配置">
                 <button
@@ -616,7 +646,7 @@
                   超参数
                 </button>
               </div>
-              <span class="shelf-state" id="shelfState">数据已锁定 · 按钢管编号分组</span>
+              <span class="shelf-state" id="shelfState">无活动项目</span>
             </div>
 
             <div
@@ -654,27 +684,24 @@
                 <div class="dataset-summary">
                   <div class="summary-row">
                     <span>已挂载数据集</span>
-                    <strong>line-scan-047</strong>
+                    <strong id="datasetMountedValue">未挂载</strong>
                   </div>
                   <div class="summary-row">
                     <span>钢管 / 序列</span>
-                    <strong>12 / 36</strong>
+                    <strong id="datasetPipeValue">-- / --</strong>
                   </div>
                   <div class="summary-row">
                     <span>训练 / 验证 / 测试</span>
-                    <strong>6,736 / 842 / 842</strong>
+                    <strong id="datasetSplitValue">-- / -- / --</strong>
                   </div>
                   <div class="summary-row">
                     <span>划分校验</span>
-                    <strong class="status-ok"><i data-lucide="badge-check" aria-hidden="true"></i>无泄漏</strong>
+                    <strong id="datasetLeakValue">待验证</strong>
                   </div>
                 </div>
               </div>
               <div class="file-strip" id="datasetFileStrip">
-                <span><i data-lucide="folder-open" aria-hidden="true"></i>pipe_001 / sequence_001</span>
-                <span><i data-lucide="image" aria-hidden="true"></i>gray/000001.png</span>
-                <span><i data-lucide="layers-3" aria-hidden="true"></i>masks/000001.png</span>
-                <span><i data-lucide="shield-check" aria-hidden="true"></i>manifest.jsonl</span>
+                <span><i data-lucide="folder-open" aria-hidden="true"></i>尚未挂载数据集</span>
               </div>
             </div>
 
@@ -796,13 +823,13 @@
             <div>
               <div class="eyebrow">
                 <span class="eyebrow-index">03</span>
-                <span>RUN ARCHIVE / 52 RECORDS</span>
+                <span>RUN ARCHIVE / 2 RECORDS</span>
               </div>
               <div class="stage-title-row">
                 <h1 id="archive-title">实验档案</h1>
-                <span class="archive-count" id="archiveCount">4 条可见记录</span>
+                <span class="archive-count" id="archiveCount">2 条可见记录</span>
               </div>
-              <p>检索历史运行，恢复关键上下文，并把选中实验放入同一视窗比较。</p>
+              <p>仅展示仓库中可追溯的真实实验结果，并支持把选中实验放入同一视窗比较。</p>
             </div>
             <div class="archive-search-wrap">
               <i data-lucide="search" aria-hidden="true"></i>
